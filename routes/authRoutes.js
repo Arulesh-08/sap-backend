@@ -10,7 +10,11 @@ const ADMIN_EMAIL = "jvarulesh@gmail.com";
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student", rollNumber, department } = req.body;
+    const { name, email, password, rollNumber, department } = req.body;
+const role =
+  email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+    ? "admin"
+    : "student";
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
