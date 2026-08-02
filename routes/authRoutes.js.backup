@@ -4,13 +4,11 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 const router = express.Router();
-const ADMIN_EMAIL = "jvarulesh@gmail.com";
-
 
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student", rollNumber, department } = req.body;
+    const { name, email, password, role, rollNumber, department } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -23,7 +21,7 @@ router.post("/register", async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student",
+      role,
       rollNumber,
       department,
     });
@@ -48,18 +46,12 @@ router.post("/login", async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-
-    const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
-
-
-    const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
-
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
     const token = jwt.sign(
-      { id: user._id, role },
+      { id: user._id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -69,7 +61,7 @@ router.post("/login", async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        role: user.role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student",
+        role: user.role,
         department: user.department,
         rollNumber: user.rollNumber,
       },
