@@ -65,6 +65,7 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod"), async (r
 
     const pending = [];
     records.forEach((record) => {
+      if (!record.student) return;
       record.activities.forEach((activity) => {
         if (activity.currentStage === stage) {
           pending.push({
@@ -95,6 +96,7 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod"), async (req, 
 
     const all = [];
     records.forEach((record) => {
+      if (!record.student) return;
       record.activities.forEach((activity) => {
         const remarks =
           activity.hodApproval?.remarks ||
