@@ -24,13 +24,13 @@ const role =
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student",
-      rollNumber,
-      department,
-    });
+  name,
+  email,
+  password: hashedPassword,
+  role,
+  rollNumber,
+  department,
+});
 
     res.status(201).json({
       message: "User registered successfully",
@@ -52,8 +52,7 @@ router.post("/login", async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-
-    const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
+role: user.role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student",
 
 
     const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
