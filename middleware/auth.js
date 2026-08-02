@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 
-// JWT Authentication Middleware
+// Authentication Middleware
 const protect = (req, res, next) => {
   let token;
   if (
@@ -22,14 +22,16 @@ const protect = (req, res, next) => {
   }
 };
 
-// Role Check Middleware (Allows ADMIN full access)
+// Alias protect as verifyToken so both names work everywhere
+const verifyToken = protect;
+
+// Role Check Middleware (Grants Admin full bypass access)
 const allowRoles = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ message: "User not authenticated" });
     }
 
-    // Admin super-access bypass
     if (req.user.role === "admin" || allowedRoles.includes(req.user.role)) {
       return next();
     }
@@ -42,6 +44,7 @@ const authorizeRoles = allowRoles;
 
 module.exports = {
   protect,
+  verifyToken,
   allowRoles,
   authorizeRoles,
 };
