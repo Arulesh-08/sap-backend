@@ -35,7 +35,7 @@ app.use("/api/admin", require("./routes/admin"));
 
 // Check if reportRoutes exists before mounting
 if (fs.existsSync(path.join(__dirname, "routes", "reportRoutes.js"))) {
-  app.use("/api/reports", require("./routes/reportRoutes"));
+  app.use("/api/report", require("./routes/reportRoutes"));
 }
 
 // Health check endpoint
