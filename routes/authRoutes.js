@@ -54,7 +54,7 @@ router.post("/login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
 
 
-    const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
+    const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : user.role;
 
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid email or password" });
@@ -71,7 +71,7 @@ router.post("/login", async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student",
+        role,
         department: user.department,
         rollNumber: user.rollNumber,
       },
