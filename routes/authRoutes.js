@@ -52,7 +52,6 @@ router.post("/login", async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student",
 
 
     const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
