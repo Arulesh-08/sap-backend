@@ -19,7 +19,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/auth", authRoutes);
 app.use("/api/points", pointsRoutes);
 app.use("/api/report", reportRoutes);
-
+app.use("/api/admin", require("./routes/admin"));
 app.get("/", (req, res) => {
   res.send("SAP Points API is running");
 });
