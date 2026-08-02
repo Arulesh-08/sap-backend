@@ -2,19 +2,16 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-
 const router = express.Router();
 const ADMIN_EMAIL = "jvarulesh@gmail.com";
-
 
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, rollNumber, department } = req.body;
-const role =
-  email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-    ? "admin"
-    : "student";
+    const { name, email, password, role, rollNumber, department } = req.body;
+
+    const finalRole =
+      email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : role;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -22,15 +19,14 @@ const role =
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
     const user = await User.create({
-  name,
-  email,
-  password: hashedPassword,
-  role,
-  rollNumber,
-  department,
-});
+      name,
+      email,
+      password: hashedPassword,
+      role: finalRole,
+      rollNumber,
+      department,
+    });
 
     res.status(201).json({
       message: "User registered successfully",
@@ -45,27 +41,20 @@ const role =
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
-
     const isMatch = await bcrypt.compare(password, user.password);
-
-
     const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : user.role;
-
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
-
     const token = jwt.sign(
       { id: user._id, role },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
-
     res.json({
       token,
       user: {
