@@ -1,6 +1,5 @@
-const jwt = require("jsonwebtoken");
 
-// JWT Authentication Middleware
+// Authentication middleware to check JWT token
 const protect = (req, res, next) => {
   let token;
   if (
@@ -10,7 +9,7 @@ const protect = (req, res, next) => {
     try {
       token = req.headers.authorization.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
-      req.user = decoded;
+      req.user = decoded; // Contains id, role, email, etc.
       return next();
     } catch (error) {
       return res.status(401).json({ message: "Not authorized, token failed" });
@@ -22,14 +21,14 @@ const protect = (req, res, next) => {
   }
 };
 
-// Role Check Middleware (Allows ADMIN full access)
+// Authorization middleware that lets ADMIN access everything alongside allowed roles!
 const allowRoles = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ message: "User not authenticated" });
     }
 
-    // Admin super-access bypass
+    // 🔑 Super Admin Bypass: Admin has full access to ALL student/FM/CA/HOD routes!
     if (req.user.role === "admin" || allowedRoles.includes(req.user.role)) {
       return next();
     }
@@ -38,6 +37,7 @@ const allowRoles = (...allowedRoles) => {
   };
 };
 
+// Alias for compatibility
 const authorizeRoles = allowRoles;
 
 module.exports = {
