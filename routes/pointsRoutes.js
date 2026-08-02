@@ -1,7 +1,21 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+const path = require("path");
 const StudentPoints = require("../models/StudentPoints");
 const { protect } = require("../middleware/auth");
+
+// Storage setup for Multer file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+
+const upload = multer({ storage });
 
 // 1. Get logged-in student's points submissions (GET /api/points/my-points)
 router.get("/my-points", protect, async (req, res) => {
@@ -15,7 +29,7 @@ router.get("/my-points", protect, async (req, res) => {
   }
 });
 
-// Alias: also accept GET /api/points/my
+// Alias: GET /api/points/my
 router.get("/my", protect, async (req, res) => {
   try {
     const points = await StudentPoints.find({ student: req.user.id }).sort({
@@ -27,10 +41,11 @@ router.get("/my", protect, async (req, res) => {
   }
 });
 
-// 2. Submit new Activity Point entry (POST /api/points)
-router.post("/", protect, async (req, res) => {
+// 2. Submit new Activity Point entry with file upload (POST /api/points)
+router.post("/", protect, upload.single("certificate"), async (req, res) => {
   try {
-    const { category, activityTitle, pointsClaimed, certificateUrl } = req.body;
+    const { category, activityTitle, pointsClaimed } = req.body;
+    const certificateUrl = req.file ? `/uploads/${req.file.filename}` : "";
 
     const newPoint = new StudentPoints({
       student: req.user.id,
