@@ -1,15 +1,7 @@
 const mongoose = require("mongoose");
+const { POINT_STRUCTURE } = require("../config/pointStructure");
 
-const ACTIVITY_CATEGORIES = [
-  "1. Paper/Poster/Project Presentation",
-  "2. Techno Managerial Events / Hackathon / Ideathon",
-  "3. Sports & Games",
-  "4. Membership & Social Activities",
-  "5. Leadership/Organizing Events",
-  "6. Non-Credit Value-Added Course/IPT",
-  "7. Project to paper/Patent/Product Copyright",
-  "8. GATE/CAT/Govt. Exams / Placement",
-];
+const ACTIVITY_CATEGORIES = Object.keys(POINT_STRUCTURE);
 
 const approvalStepSchema = new mongoose.Schema(
   {
@@ -25,13 +17,19 @@ const approvalStepSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One entry per activity a student claims points for.
+// pointsClaimed is ALWAYS computed server-side from category+type+tier —
+// never trusted from the client, so it can never be tampered with.
 const activitySchema = new mongoose.Schema({
   category: {
     type: String,
     enum: ACTIVITY_CATEGORIES,
     required: true,
   },
-  title: { type: String, required: true },
+  type: { type: String, required: true }, // e.g. "Presented", "Prize", "Membership"
+  tier: { type: String, required: true }, // e.g. "Inside", "Outside", "NCC/NSS"
+  title: { type: String, default: "" }, // optional free-text description (paper name, event name)
+
   pointsClaimed: { type: Number, required: true },
   pointsApproved: { type: Number, default: 0 },
   proofUrl: { type: String },

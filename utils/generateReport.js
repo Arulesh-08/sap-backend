@@ -2,6 +2,7 @@ const PDFDocument = require("pdfkit");
 const { PDFDocument: PDFLibDocument } = require("pdf-lib");
 const fs = require("fs");
 const path = require("path");
+const { POINT_STRUCTURE } = require("../config/pointStructure");
 
 const LOGO_PATH = path.join(__dirname, "..", "assets", "kec-logo.jpeg");
 
@@ -36,26 +37,28 @@ function drawHeader(doc, pageWidth) {
     .fillColor("#ffffff")
     .font("Helvetica-Bold")
     .fontSize(15)
-    .text("KONGU ENGINEERING COLLEGE, PERUNDURAI 638 060", 110, 22, {
-      width: pageWidth - 150,
-    });
+    .text("KONGU ENGINEERING COLLEGE, PERUNDURAI 638 060", 110, 20, { width: pageWidth - 150 });
 
   doc
     .font("Helvetica")
-    .fontSize(10)
+    .fontSize(9.5)
     .fillColor("#d8e8e0")
-    .text("DEPARTMENT OF INFORMATION TECHNOLOGY", 110, 42, { width: pageWidth - 150 });
+    .text("DEPARTMENT OF INFORMATION TECHNOLOGY", 110, 40, { width: pageWidth - 150 });
 
   doc
     .font("Helvetica-Bold")
-    .fontSize(11)
+    .fontSize(10.5)
     .fillColor("#ffffff")
-    .text("EVALUATION SHEET - STUDENT ACTIVITY POINTS", 110, 60, {
-      width: pageWidth - 150,
-    });
+    .text("EVALUATION SHEET - STUDENT ACTIVITY POINTS", 110, 56, { width: pageWidth - 150 });
+
+  doc
+    .font("Helvetica")
+    .fontSize(8.5)
+    .fillColor("#d8e8e0")
+    .text("Revised version W.E.F 10.10.2025", 110, 72, { width: pageWidth - 150 });
 
   doc.fillColor(COLORS.textDark);
-  doc.y = 105;
+  doc.y = 100;
 }
 
 function drawVerifiedStamp(doc, summary, pageWidth) {
@@ -65,34 +68,25 @@ function drawVerifiedStamp(doc, summary, pageWidth) {
 
   const stampX = pageWidth - 150;
   const stampY = 100;
-  const radius = 32;
+  const radius = 28;
 
-  doc
-    .save()
-    .lineWidth(2.5)
-    .strokeColor(color)
-    .circle(stampX + radius, stampY + radius, radius)
-    .stroke();
+  doc.save().lineWidth(2.5).strokeColor(color).circle(stampX + radius, stampY + radius, radius).stroke();
 
   if (isFullyVerified) {
     doc
       .lineWidth(3)
       .strokeColor(color)
-      .moveTo(stampX + radius - 14, stampY + radius)
-      .lineTo(stampX + radius - 4, stampY + radius + 10)
-      .lineTo(stampX + radius + 15, stampY + radius - 12)
+      .moveTo(stampX + radius - 12, stampY + radius)
+      .lineTo(stampX + radius - 3, stampY + radius + 9)
+      .lineTo(stampX + radius + 13, stampY + radius - 10)
       .stroke();
   } else {
-    doc
-      .fontSize(20)
-      .fillColor(color)
-      .font("Helvetica-Bold")
-      .text("!", stampX + radius - 4, stampY + radius - 12);
+    doc.fontSize(18).fillColor(color).font("Helvetica-Bold").text("!", stampX + radius - 4, stampY + radius - 11);
   }
 
   doc
     .restore()
-    .fontSize(7.5)
+    .fontSize(7)
     .font("Helvetica-Bold")
     .fillColor(color)
     .text(label, stampX - 10, stampY + radius * 2 + 4, { width: radius * 2 + 20, align: "center" });
@@ -123,16 +117,15 @@ function buildEvaluationSheet(user, studentPoints) {
 
     doc.moveDown(0.5);
     const infoY = doc.y;
-    doc
-      .roundedRect(40, infoY, pageWidth - 220, 60, 6)
-      .fillOpacity(1)
-      .fillAndStroke(COLORS.lightBg, COLORS.border);
-    doc.fillColor(COLORS.textDark).font("Helvetica-Bold").fontSize(10);
-    doc.text(`Name: ${user.name}`, 52, infoY + 10);
-    doc.text(`Roll Number: ${user.rollNumber || "-"}`, 52, infoY + 26);
-    doc.text(`Department: ${user.department}`, 52, infoY + 42);
-    doc.y = infoY + 75;
+    doc.roundedRect(40, infoY, pageWidth - 220, 55, 6).fillAndStroke(COLORS.lightBg, COLORS.border);
+    doc.fillColor(COLORS.textDark).font("Helvetica-Bold").fontSize(9.5);
+    doc.text(`Name: ${user.name}`, 50, infoY + 9);
+    doc.text(`Roll Number: ${user.rollNumber || "-"}`, 50, infoY + 23);
+    doc.text(`Department: ${user.department}`, 50, infoY + 37);
+    doc.y = infoY + 68;
 
+    // Group activities by category (following the exact category order from the official doc)
+    const categoryOrder = Object.keys(POINT_STRUCTURE);
     const grouped = {};
     studentPoints.activities.forEach((a) => {
       if (!grouped[a.category]) grouped[a.category] = [];
@@ -140,33 +133,38 @@ function buildEvaluationSheet(user, studentPoints) {
     });
 
     let grandTotalApproved = 0;
+    const startX = 40;
 
-    Object.keys(grouped).forEach((category) => {
+    categoryOrder.forEach((category) => {
       const items = grouped[category];
+      if (!items || items.length === 0) return; // only show categories the student actually submitted under
 
-      if (doc.y > 700) doc.addPage();
-      doc.rect(40, doc.y, pageWidth - 80, 20).fill(COLORS.bannerGreen);
+      const maxMarks = POINT_STRUCTURE[category].max;
+
+      if (doc.y > 690) doc.addPage();
+      doc.rect(startX, doc.y, pageWidth - 80, 20).fill(COLORS.bannerGreen);
       doc
         .fillColor("#ffffff")
         .font("Helvetica-Bold")
-        .fontSize(10)
-        .text(category, 48, doc.y + 5, { width: pageWidth - 100 });
+        .fontSize(9.5)
+        .text(`${category}  (Max ${maxMarks})`, startX + 8, doc.y + 5, { width: pageWidth - 100 });
       doc.y += 24;
       doc.fillColor(COLORS.textDark);
 
-      const startX = 40;
       let y = doc.y;
-      doc.font("Helvetica-Bold").fontSize(9);
-      doc.text("Title", startX + 4, y, { width: 220 });
-      doc.text("Claimed", startX + 230, y, { width: 60 });
-      doc.text("Approved", startX + 300, y, { width: 60 });
-      doc.text("Status", startX + 370, y, { width: 130 });
+      doc.font("Helvetica-Bold").fontSize(8.5);
+      doc.text("Type", startX + 4, y, { width: 130 });
+      doc.text("Tier", startX + 138, y, { width: 130 });
+      doc.text("Claimed", startX + 272, y, { width: 50 });
+      doc.text("Approved", startX + 326, y, { width: 55 });
+      doc.text("Status", startX + 385, y, { width: 115 });
       doc.moveDown(0.4);
       doc.moveTo(startX, doc.y).lineTo(pageWidth - 40, doc.y).strokeColor(COLORS.border).stroke();
       doc.moveDown(0.3);
 
-      doc.font("Helvetica").fontSize(9);
+      doc.font("Helvetica").fontSize(8.5);
       let categoryTotal = 0;
+
       items.forEach((activity) => {
         if (doc.y > 730) {
           doc.addPage();
@@ -180,44 +178,62 @@ function buildEvaluationSheet(user, studentPoints) {
             ? "rejected"
             : `pending (${activity.currentStage})`;
 
-        doc.text(activity.title, startX + 4, y, { width: 220 });
-        doc.text(String(activity.pointsClaimed), startX + 230, y, { width: 60 });
-        doc.text(String(activity.pointsApproved), startX + 300, y, { width: 60 });
-        doc.text(displayStatus, startX + 370, y, { width: 130 });
+        doc.text(activity.type, startX + 4, y, { width: 130 });
+        doc.text(activity.tier, startX + 138, y, { width: 130 });
+        doc.text(String(activity.pointsClaimed), startX + 272, y, { width: 50 });
+        doc.text(String(activity.pointsApproved), startX + 326, y, { width: 55 });
+        doc.text(displayStatus, startX + 385, y, { width: 115 });
+
+        if (activity.title) {
+          doc.moveDown(0.4);
+          doc
+            .fontSize(7.5)
+            .fillColor(COLORS.textMuted)
+            .text(activity.title, startX + 4, doc.y, { width: pageWidth - 100 });
+          doc.fontSize(8.5).fillColor(COLORS.textDark);
+        }
+
+        if (activity.currentStage === "completed" && activity.verificationCode) {
+          doc.moveDown(0.3);
+          doc
+            .fontSize(7)
+            .fillColor(COLORS.textMuted)
+            .text(`Verification Code: ${activity.verificationCode}`, startX + 4, doc.y);
+          doc.fontSize(8.5).fillColor(COLORS.textDark);
+        }
+
         doc.moveDown(0.6);
 
         if (activity.currentStage === "completed") {
           categoryTotal += activity.pointsApproved;
           grandTotalApproved += activity.pointsApproved;
-
-          if (activity.verificationCode) {
-            doc
-              .fontSize(7.5)
-              .fillColor(COLORS.textMuted)
-              .text(`Verification Code: ${activity.verificationCode}`, startX + 4, doc.y);
-            doc.moveDown(0.5);
-            doc.fontSize(9).fillColor(COLORS.textDark);
-          }
         }
       });
 
-      doc.font("Helvetica-Bold").fontSize(9);
-      doc.text(`Category Total (Approved): ${categoryTotal}`, startX + 4, doc.y);
+      doc.font("Helvetica-Bold").fontSize(8.5);
+      doc.text(`Category Total (Approved): ${categoryTotal} / ${maxMarks}`, startX + 4, doc.y);
       doc.moveDown(1);
     });
 
-    if (doc.y > 700) doc.addPage();
+    if (doc.y > 690) doc.addPage();
     doc.moveDown(0.5);
     doc.moveTo(40, doc.y).lineTo(pageWidth - 40, doc.y).strokeColor(COLORS.border).stroke();
     doc.moveDown(0.5);
 
     const sapMark = calculateSAPMark(grandTotalApproved);
-    doc.font("Helvetica-Bold").fontSize(12).fillColor(COLORS.bannerDark);
+    doc.font("Helvetica-Bold").fontSize(11.5).fillColor(COLORS.bannerDark);
     doc.text(`Total Activity Points Earned (Approved): ${grandTotalApproved}`);
     doc.text(`SAP Mark (per course, out of 5): ${sapMark}`);
 
+    doc.moveDown(1.5);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.textDark);
+    doc.text("Category of Marks for SAP:");
+    doc.moveDown(0.4);
+    doc.font("Helvetica").fontSize(8);
+    doc.text("150+ = 5   |   100-149 = 4   |   50-99 = 3   |   25-49 = 2   |   10-24 = 1   |   Below 10 = 0");
+
     doc.moveDown(2);
-    doc.font("Helvetica").fontSize(10).fillColor(COLORS.textDark);
+    doc.font("Helvetica").fontSize(9.5).fillColor(COLORS.textDark);
     doc.text("Student Signature: ____________________");
     doc.moveDown(1);
     doc.text("Class Advisor Verified: ____________________");
@@ -226,7 +242,7 @@ function buildEvaluationSheet(user, studentPoints) {
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
       doc
-        .fontSize(8)
+        .fontSize(7.5)
         .fillColor(COLORS.textMuted)
         .text(`Page ${i + 1} of ${range.count}`, 40, doc.page.height - 30, {
           width: pageWidth - 80,
@@ -238,7 +254,8 @@ function buildEvaluationSheet(user, studentPoints) {
   });
 }
 
-// certificatePaths is an array of full file paths, passed in from reportRoutes.js
+// Appends each UNIQUE certificate as its own labeled page — deduped by filename so
+// the same uploaded file never appears twice even if referenced more than once.
 async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths) {
   const finalPdf = await PDFLibDocument.create();
 
@@ -249,13 +266,22 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths
   const A4_WIDTH = 595.28;
   const A4_HEIGHT = 841.89;
 
-  // Map proofUrl -> activity, so we can caption each certificate page correctly
   const activityByFilename = {};
   studentPoints.activities.forEach((a) => {
     if (a.proofUrl) activityByFilename[a.proofUrl] = a;
   });
 
-  for (const certPath of certificatePaths) {
+  // Dedupe: only ever embed each certificate filename once, even if it appears
+  // more than once in certificatePaths for any reason.
+  const seenFilenames = new Set();
+  const uniquePaths = certificatePaths.filter((certPath) => {
+    const filename = path.basename(certPath);
+    if (seenFilenames.has(filename)) return false;
+    seenFilenames.add(filename);
+    return true;
+  });
+
+  for (const certPath of uniquePaths) {
     if (!fs.existsSync(certPath)) continue;
 
     const filename = path.basename(certPath);
@@ -276,10 +302,10 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths
     const page = finalPdf.addPage([A4_WIDTH, A4_HEIGHT]);
 
     if (activity) {
-      page.drawText(`Proof: ${activity.category} - ${activity.title}`, {
+      page.drawText(`Proof: ${activity.category} - ${activity.type} (${activity.tier})`, {
         x: 40,
         y: A4_HEIGHT - 40,
-        size: 11,
+        size: 10,
       });
     }
 

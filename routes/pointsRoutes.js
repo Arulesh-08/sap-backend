@@ -3,6 +3,7 @@ const express = require("express");
 const StudentPoints = require("../models/StudentPoints");
 const { protect, allowRoles } = require("../middleware/auth");
 const upload = require("../middleware/upload");
+const { POINT_STRUCTURE, getPoints } = require("../config/pointStructure");
 
 const router = express.Router();
 
@@ -16,10 +17,16 @@ function generateVerificationCode() {
   return `KEC-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 }
 
+// GET /api/points/categories — the full nested category/type/tier point structure,
+// straight from the official doc. The dropdown UI is built entirely from this.
 router.get("/categories", protect, (req, res) => {
-  res.json(StudentPoints.ACTIVITY_CATEGORIES);
+  res.json(POINT_STRUCTURE);
 });
 
+// Student submits a new activity for points, with a certificate file attached.
+// Points are NEVER taken from the client — always looked up server-side from
+// category+type+tier, so a tampered request can't claim points it isn't entitled to.
+// POST /api/points/submit  (multipart/form-data, field name: "certificate")
 router.post(
   "/submit",
   protect,
@@ -27,15 +34,27 @@ router.post(
   upload.single("certificate"),
   async (req, res) => {
     try {
-      const { category, title, pointsClaimed } = req.body;
+      const { category, type, tier, title } = req.body;
       const proofUrl = req.file ? req.file.filename : undefined;
+
+      const points = getPoints(category, type, tier);
+      if (points === null) {
+        return res.status(400).json({ message: "Invalid category/type/tier combination" });
+      }
 
       let record = await StudentPoints.findOne({ student: req.user.id });
       if (!record) {
         record = await StudentPoints.create({ student: req.user.id, activities: [] });
       }
 
-      record.activities.push({ category, title, pointsClaimed, proofUrl });
+      record.activities.push({
+        category,
+        type,
+        tier,
+        title: title || "",
+        pointsClaimed: points,
+        proofUrl,
+      });
       await record.save();
 
       res.status(201).json({ message: "Activity submitted for mentor review", record });
@@ -75,6 +94,8 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod"), async (r
             department: record.student.department,
             activityId: activity._id,
             category: activity.category,
+            type: activity.type,
+            tier: activity.tier,
             title: activity.title,
             pointsClaimed: activity.pointsClaimed,
             proofUrl: activity.proofUrl,
@@ -111,6 +132,8 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod"), async (req, 
           department: record.student.department,
           activityId: activity._id,
           category: activity.category,
+          type: activity.type,
+          tier: activity.tier,
           title: activity.title,
           pointsClaimed: activity.pointsClaimed,
           pointsApproved: activity.pointsApproved,
@@ -187,6 +210,8 @@ router.patch(
         activity.currentStage = next;
 
         if (next === "completed") {
+          // pointsClaimed was already server-computed at submit time — HOD keeps it
+          // unless explicitly overridden with a value from the approval form.
           activity.pointsApproved =
             pointsApproved !== undefined && pointsApproved !== ""
               ? Number(pointsApproved)
