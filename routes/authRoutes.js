@@ -10,8 +10,10 @@ router.post("/register", async (req, res) => {
   try {
     const { name, email, password, role, rollNumber, department } = req.body;
 
+    // Public registration ONLY ever creates students — mentor/advisor/HOD
+    // accounts must be created by the admin directly (see createStaff.js script)
     const finalRole =
-      email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : role;
+      email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
