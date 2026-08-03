@@ -26,8 +26,8 @@ const activitySchema = new mongoose.Schema({
     enum: ACTIVITY_CATEGORIES,
     required: true,
   },
-  type: { type: String, required: true }, // e.g. "Presented", "Prize", "Membership"
-  tier: { type: String, required: true }, // e.g. "Inside", "Outside", "NCC/NSS"
+  type: { type: String, default: "" }, // e.g. "Presented", "Prize", "Membership"
+  tier: { type: String, default: "" }, // e.g. "Inside", "Outside", "NCC/NSS"
   title: { type: String, default: "" }, // optional free-text description (paper name, event name)
 
   pointsClaimed: { type: Number, required: true },
