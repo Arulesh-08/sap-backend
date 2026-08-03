@@ -15,7 +15,7 @@ router.post("/register", async (req, res) => {
     const finalRole =
       email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       return res.status(400).json({ message: "Email already registered" });
     }
@@ -43,7 +43,7 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
