@@ -55,7 +55,7 @@ router.post(
         pointsClaimed: points,
         proofUrl,
       });
-      await record.save();
+      await record.save({ validateModifiedOnly: true });
 
       res.status(201).json({ message: "Activity submitted for mentor review", record });
     } catch (err) {
@@ -221,7 +221,7 @@ router.patch(
       }
 
       record.recalculateTotal();
-      await record.save();
+      await record.save({ validateModifiedOnly: true });
 
       res.json({ message: "Review recorded", record });
     } catch (err) {
