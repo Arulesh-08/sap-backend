@@ -34,6 +34,7 @@ router.post(
   upload.single("certificate"),
   async (req, res) => {
     try {
+      const fs = require("fs");
       const { category, type, tier, title } = req.body;
       const proofUrl = req.file ? req.file.filename : undefined;
 
@@ -47,13 +48,30 @@ router.post(
         record = await StudentPoints.create({ student: req.user.id, activities: [] });
       }
 
+      // Hash the uploaded certificate's actual content, not just its filename —
+      // catches the same file re-uploaded under a different name too.
+      let proofHash;
+      if (req.file) {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        proofHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+
+        const duplicate = record.activities.find((a) => a.proofHash === proofHash);
+        if (duplicate) {
+          fs.unlinkSync(req.file.path); // clean up the redundant upload
+          return res.status(400).json({
+            message: "This certificate has already been submitted for a previous activity.",
+          });
+        }
+      }
+
       record.activities.push({
         category,
-        type,
+        type: type || "",
         tier,
         title: title || "",
         pointsClaimed: points,
         proofUrl,
+        proofHash,
       });
       await record.save({ validateModifiedOnly: true });
 

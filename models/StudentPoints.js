@@ -33,6 +33,7 @@ const activitySchema = new mongoose.Schema({
   pointsClaimed: { type: Number, required: true },
   pointsApproved: { type: Number, default: 0 },
   proofUrl: { type: String },
+  proofHash: { type: String }, // SHA-256 of the certificate file, used to block re-uploading the same file
 
   currentStage: {
     type: String,
