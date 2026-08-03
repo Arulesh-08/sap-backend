@@ -110,7 +110,7 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
     });
   });
 
-  const boxHeight = headerH + rows.length * rowH + totalRowH + 6;
+  const boxHeight = headerH + 8 + rows.length * rowH + totalRowH + 6;
 
   // Category header bar
   doc.rect(x, y, width, headerH).fill(COLORS.bannerGreen);
@@ -120,37 +120,51 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
     .fontSize(7.5)
     .text(`${category}  (Max ${entry.max})`, x + 4, y + 4, { width: width - 8 });
 
+  // Column layout: Label | Max Pts | Marks Awarded
+  const labelW = width * 0.58;
+  const maxColX = x + labelW + 4;
+  const maxColW = width * 0.18;
+  const awardColX = maxColX + maxColW + 2;
+  const awardColW = width - labelW - maxColW - 12;
+
   let rowY = y + headerH;
+
+  // Column headers for this box
+  doc.font("Helvetica-Bold").fontSize(6);
+  doc.fillColor(COLORS.textMuted);
+  doc.text("Max", maxColX, rowY + 2, { width: maxColW, align: "right" });
+  doc.text("Awarded", awardColX, rowY + 2, { width: awardColW, align: "right" });
+  rowY += 8;
+
   doc.font("Helvetica").fontSize(7);
 
   let categoryTotal = 0;
   let lastType = null;
 
   rows.forEach((row) => {
-    // Find a matching activity for this exact type+tier
     const match = studentActivities.find((a) => a.type === row.type && a.tier === row.tier);
 
     doc.rect(x, rowY, width, rowH).strokeColor(COLORS.border).lineWidth(0.5).stroke();
 
     doc.fillColor(COLORS.textDark);
     const label = row.type === lastType ? `    ${row.tier}` : `${row.type} - ${row.tier}`;
-    doc.text(label, x + 3, rowY + 3, { width: width * 0.6, height: rowH, ellipsis: true });
+    doc.text(label, x + 3, rowY + 3, { width: labelW, height: rowH, ellipsis: true });
     lastType = row.type;
 
-    doc.text(`(${row.maxPts})`, x + width * 0.62, rowY + 3, { width: width * 0.18 });
+    doc.fillColor(COLORS.textMuted).text(String(row.maxPts), maxColX, rowY + 3, { width: maxColW, align: "right" });
 
     if (match && match.currentStage === "completed") {
       doc
         .fillColor(COLORS.fillMark)
         .font("Helvetica-Bold")
-        .text(String(match.pointsApproved), x + width * 0.82, rowY + 3, { width: width * 0.16 });
+        .text(String(match.pointsApproved), awardColX, rowY + 3, { width: awardColW, align: "right" });
       doc.font("Helvetica").fillColor(COLORS.textDark);
       categoryTotal += match.pointsApproved;
     } else if (match) {
       doc
         .fillColor(COLORS.pendingAmber)
-        .fontSize(6)
-        .text(`(${match.currentStage})`, x + width * 0.82, rowY + 4, { width: width * 0.16 });
+        .fontSize(5.5)
+        .text(match.currentStage, awardColX, rowY + 4, { width: awardColW, align: "right" });
       doc.fontSize(7).fillColor(COLORS.textDark);
     }
 
@@ -366,14 +380,16 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths
       }
 
       const maxWidth = A4_WIDTH - 80;
-      const maxHeight = A4_HEIGHT - 120;
+      const maxHeight = A4_HEIGHT - 110; // leave room for the caption at the top
       const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+      const drawWidth = image.width * scale;
+      const drawHeight = image.height * scale;
 
       page.drawImage(image, {
-        x: (A4_WIDTH - image.width * scale) / 2,
-        y: (A4_HEIGHT - image.height * scale) / 2 - 20,
-        width: image.width * scale,
-        height: image.height * scale,
+        x: (A4_WIDTH - drawWidth) / 2,
+        y: A4_HEIGHT - 70 - drawHeight, // anchored just under the caption, no big empty gap
+        width: drawWidth,
+        height: drawHeight,
       });
     } catch (err) {
       // If one certificate fails to embed, skip it rather than corrupting the whole PDF
