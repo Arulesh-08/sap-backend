@@ -322,9 +322,11 @@ function buildEvaluationSheet(user, studentPoints) {
   });
 }
 
-// Appends each UNIQUE certificate as its own labeled page — deduped by filename,
+// Appends each UNIQUE certificate as its own labeled page — deduped by URL,
 // and appended directly after the main sheet with no blank page in between.
-async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths) {
+// Certificates now live on Cloudinary, so each one is fetched over HTTP rather
+// than read from local disk.
+async function appendCertificates(mainPdfBuffer, studentPoints, certificateUrls) {
   const finalPdf = await PDFLibDocument.create();
 
   const mainDoc = await PDFLibDocument.load(mainPdfBuffer);
@@ -334,40 +336,38 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths
   const A4_WIDTH = 595.28;
   const A4_HEIGHT = 841.89;
 
-  const activityByFilename = {};
+  const activityByUrl = {};
   studentPoints.activities.forEach((a) => {
-    if (a.proofUrl) activityByFilename[a.proofUrl] = a;
+    if (a.proofUrl) activityByUrl[a.proofUrl] = a;
   });
 
-  const seenFilenames = new Set();
-  const uniquePaths = (certificatePaths || []).filter((certPath) => {
-    if (!certPath) return false;
-    const filename = path.basename(certPath);
-    if (seenFilenames.has(filename)) return false;
-    seenFilenames.add(filename);
-    return true;
-  });
+  const uniqueUrls = [...new Set((certificateUrls || []).filter(Boolean))];
 
-  for (const certPath of uniquePaths) {
-    if (!fs.existsSync(certPath)) continue;
-
-    const filename = path.basename(certPath);
-    const activity = activityByFilename[filename];
-    const ext = path.extname(certPath).toLowerCase();
-
+  for (const certUrl of uniqueUrls) {
     try {
-      if (ext === ".pdf") {
-        const certBytes = fs.readFileSync(certPath);
+      const response = await fetch(certUrl);
+      if (!response.ok) continue; // certificate missing on Cloudinary — skip, no blank page
+
+      const certBytes = Buffer.from(await response.arrayBuffer());
+      const activity = activityByUrl[certUrl];
+
+      // Cloudinary URLs generally keep the original extension in the path; fall
+      // back to sniffing the PDF magic bytes in case it's missing.
+      const urlPath = new URL(certUrl).pathname.toLowerCase();
+      const isPdf = urlPath.endsWith(".pdf") || certBytes.slice(0, 4).toString("ascii") === "%PDF";
+      const isPng = urlPath.endsWith(".png");
+      const isJpg = urlPath.endsWith(".jpg") || urlPath.endsWith(".jpeg");
+
+      if (isPdf) {
         const certDoc = await PDFLibDocument.load(certBytes);
         const certPages = await finalPdf.copyPages(certDoc, certDoc.getPageIndices());
         certPages.forEach((page) => finalPdf.addPage(page));
         continue;
       }
 
-      if (![".jpg", ".jpeg", ".png"].includes(ext)) continue; // skip unsupported types silently, no blank page
+      if (!isPng && !isJpg) continue; // skip unsupported types silently, no blank page
 
-      const imageBytes = fs.readFileSync(certPath);
-      const image = ext === ".png" ? await finalPdf.embedPng(imageBytes) : await finalPdf.embedJpg(imageBytes);
+      const image = isPng ? await finalPdf.embedPng(certBytes) : await finalPdf.embedJpg(certBytes);
 
       const page = finalPdf.addPage([A4_WIDTH, A4_HEIGHT]);
 
@@ -392,7 +392,7 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificatePaths
         height: drawHeight,
       });
     } catch (err) {
-      // If one certificate fails to embed, skip it rather than corrupting the whole PDF
+      // If one certificate fails to fetch/embed, skip it rather than corrupting the whole PDF
       continue;
     }
   }

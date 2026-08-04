@@ -22,10 +22,11 @@ router.get("/:studentId", protect, async (req, res) => {
       return res.status(404).json({ message: "Student record not found" });
     }
 
-    // Collect the certificate file paths attached to each activity
+    // proofUrl is now a full Cloudinary URL (not a local disk path) — pass it
+    // straight through; generateSAPReport fetches each one over HTTP.
     const certificatePaths = studentPoints.activities
       .filter((activity) => activity.proofUrl)
-      .map((activity) => path.join(__dirname, "..", "uploads", "certificates", activity.proofUrl));
+      .map((activity) => activity.proofUrl);
 
     const pdfBytes = await generateSAPReport(user, studentPoints, certificatePaths);
 
