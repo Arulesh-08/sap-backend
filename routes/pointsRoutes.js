@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { v2: cloudinary } = require("cloudinary");
 const express = require("express");
 const StudentPoints = require("../models/StudentPoints");
 const { protect, allowRoles } = require("../middleware/auth");
@@ -36,7 +37,7 @@ router.post(
     try {
       const fs = require("fs");
       const { category, type, tier, title } = req.body;
-      const proofUrl = req.file ? req.file.filename : undefined;
+      const proofUrl = req.file ? req.file.path : undefined;
 
       const points = getPoints(category, type, tier);
       if (points === null) {
@@ -48,16 +49,20 @@ router.post(
         record = await StudentPoints.create({ student: req.user.id, activities: [] });
       }
 
-      // Hash the uploaded certificate's actual content, not just its filename —
-      // catches the same file re-uploaded under a different name too.
+      // req.file.path is now a Cloudinary URL (multer-storage-cloudinary), not a
+      // local disk path — fetch the bytes over HTTP to hash the actual content,
+      // which still catches the same file re-uploaded under a different name.
       let proofHash;
       if (req.file) {
-        const fileBuffer = fs.readFileSync(req.file.path);
+        const response = await fetch(req.file.path);
+        const fileBuffer = Buffer.from(await response.arrayBuffer());
         proofHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
 
         const duplicate = record.activities.find((a) => a.proofHash === proofHash);
         if (duplicate) {
-          fs.unlinkSync(req.file.path); // clean up the redundant upload
+          // req.file.filename is the Cloudinary public_id — delete the redundant
+          // upload from Cloudinary itself, since there's no local file to unlink.
+          await cloudinary.uploader.destroy(req.file.filename, { resource_type: "auto" });
           return res.status(400).json({
             message: "This certificate has already been submitted for a previous activity.",
           });
