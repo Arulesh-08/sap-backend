@@ -1,27 +1,22 @@
+const { v2: cloudinary } = require("cloudinary");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
-const path = require("path");
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, "..", "uploads", "certificates"));
-  },
-  filename: (req, file, cb) => {
-    // e.g. 1690000000000-nptel-certificate.jpg
-    const uniqueName = `${Date.now()}-${file.originalname.replace(/\s+/g, "_")}`;
-    cb(null, uniqueName);
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "sap-certificates",
+    allowed_formats: ["jpg", "jpeg", "png", "pdf"],
+    resource_type: "auto", // handles PDFs correctly alongside images
   },
 });
 
-const fileFilter = (req, file, cb) => {
-  const allowed = [".jpg", ".jpeg", ".png", ".pdf"];
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (allowed.includes(ext)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only JPG, PNG, or PDF files are allowed for certificates"));
-  }
-};
-
-const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB max
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 module.exports = upload;
