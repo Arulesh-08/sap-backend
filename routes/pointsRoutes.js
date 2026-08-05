@@ -265,4 +265,51 @@ router.patch(
   }
 );
 
+
+// Mentor/advisor/HOD can revoke a FULLY VERIFIED (completed) activity — e.g. if
+// fraudulent proof is discovered after the fact. Any of the three roles can do
+// this regardless of who originally approved which stage. Sends it back to
+// "rejected" and zeroes out the points.
+router.patch(
+  "/:studentId/activity/:activityId/revoke",
+  protect,
+  allowRoles("mentor", "advisor", "hod"),
+  async (req, res) => {
+    try {
+      const { remarks } = req.body;
+
+      const record = await StudentPoints.findOne({ student: req.params.studentId });
+      if (!record) return res.status(404).json({ message: "Record not found" });
+
+      const activity = record.activities.id(req.params.activityId);
+      if (!activity) return res.status(404).json({ message: "Activity not found" });
+
+      if (activity.currentStage !== "completed") {
+        return res.status(400).json({
+          message: "Only fully verified activities can be revoked.",
+        });
+      }
+
+      activity.currentStage = "rejected";
+      activity.pointsApproved = 0;
+      activity.verificationCode = undefined;
+
+      // Record who revoked it and why, on the reviewer's own approval slot
+      const role = req.user.role;
+      const stepField = `${role}Approval`;
+      activity[stepField].status = "rejected";
+      activity[stepField].approvedBy = req.user.id;
+      activity[stepField].remarks = remarks || "Verification revoked after re-review";
+      activity[stepField].date = new Date();
+
+      record.recalculateTotal();
+      await record.save();
+
+      res.json({ message: "Verification revoked", record });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
+
 module.exports = router;
