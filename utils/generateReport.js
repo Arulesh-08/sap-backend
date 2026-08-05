@@ -70,6 +70,7 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
   const rowH = 13;
   const headerH = 16;
   const totalRowH = 15;
+  const verifyRowH = 16;
 
   const rows = [];
   Object.keys(entry.types).forEach((typeName) => {
@@ -126,6 +127,18 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
   doc.rect(x, rowY, width, totalRowH).strokeColor(COLORS.border).lineWidth(0.5).stroke();
   doc.fillColor(COLORS.textDark).font("Helvetica-Bold").fontSize(7.5)
     .text(`Category Total: ${categoryTotal} / ${entry.max}`, x + 4, rowY + 3, { width: width - 8 });
+  rowY += totalRowH;
+
+  doc.rect(x, rowY, width, verifyRowH).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+  const checkboxSize = 9;
+  const checkboxY = rowY + (verifyRowH - checkboxSize) / 2;
+  doc.rect(x + 4, checkboxY, checkboxSize, checkboxSize).strokeColor(COLORS.border).lineWidth(0.6).stroke();
+  doc.fillColor(COLORS.textDark).font("Helvetica").fontSize(6.5)
+    .text("Verified", x + 4 + checkboxSize + 3, rowY + 4, { width: 34 });
+  doc.font("Helvetica").fontSize(6.5)
+    .text("Verified By: ______________________", x + 4 + checkboxSize + 40, rowY + 4, {
+      width: width - checkboxSize - 52,
+    });
 
   return { bottomY: y + boxHeight, categoryTotal };
 }
