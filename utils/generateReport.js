@@ -78,7 +78,7 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
     });
   });
 
-  const boxHeight = headerH + 8 + rows.length * rowH + totalRowH + 6;
+  const boxHeight = headerH + 8 + rows.length * rowH + totalRowH + verifyRowH + 6;
 
   doc.rect(x, y, width, headerH).fill(COLORS.bannerGreen);
   doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(7.5)
@@ -128,6 +128,47 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
     .text(`Category Total: ${categoryTotal} / ${entry.max}`, x + 4, rowY + 3, { width: width - 8 });
 
   return { bottomY: y + boxHeight, categoryTotal };
+}
+
+const INSTRUCTIONS = [
+  "For paper/project/techno managerial events, same project title/work should not be submitted/presented more than once during the course of study",
+  "Valid proof of submission acceptance/ Presented / Prize won need to be produced",
+  "Your total marks at each section should not exceed the maximum marks specified",
+  "National refers to the event outside Tamilnadu and International refers to outside India",
+  "Premier institutions include IIT's, NIT's, IISc, IIIT's, IIM's, Anna University and other Government/ Government aided institutes across the country",
+  "Each and every section should be verified and attested by the faculty (name of the faculty to be attested also mentioned in each section and marked as *)",
+  "Use this sheet as index and attach all the proof as annexure for submission",
+  "Any false/fake proof claimed for the marks will be considered as mal practice. In such case, the total marks will be given zero only.",
+];
+
+// Draws the official sheet's Instructions box verbatim, wrapping each bullet
+// to fit the given width, and returns the Y coordinate just below it.
+function drawInstructions(doc, x, y, width) {
+  const padding = 6;
+  const headingH = 12;
+  const lineGap = 3;
+  const bulletIndent = 10;
+  const textWidth = width - padding * 2 - bulletIndent;
+
+  doc.font("Helvetica").fontSize(6.5);
+  const lineHeights = INSTRUCTIONS.map((line) => doc.heightOfString(line, { width: textWidth }) + lineGap);
+  const contentHeight = headingH + lineHeights.reduce((a, b) => a + b, 0) + padding * 2;
+
+  doc.rect(x, y, width, contentHeight).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+
+  let textY = y + padding;
+  doc.font("Helvetica-Oblique").fontSize(7.5).fillColor(COLORS.textDark);
+  doc.text("Instructions:", x + padding, textY, { width: width - padding * 2 });
+  textY += headingH;
+
+  doc.font("Helvetica").fontSize(6.5);
+  INSTRUCTIONS.forEach((line, i) => {
+    doc.text("\u2022", x + padding, textY, { width: bulletIndent });
+    doc.text(line, x + padding + bulletIndent, textY, { width: textWidth });
+    textY += lineHeights[i];
+  });
+
+  return y + contentHeight;
 }
 
 function buildEvaluationSheet(user, studentPoints) {
@@ -181,7 +222,7 @@ function buildEvaluationSheet(user, studentPoints) {
 
       let rowCount = 0;
       Object.keys(entry.types).forEach((t) => { rowCount += Object.keys(entry.types[t]).length; });
-      const estimatedHeight = 16 + 8 + rowCount * 13 + 15 + 6;
+      const estimatedHeight = 16 + 8 + rowCount * 13 + 15 + 16 + 6;
 
       const y = useLeft ? leftY : rightY;
       if (y + estimatedHeight > pageHeight - 40) {
@@ -214,6 +255,12 @@ function buildEvaluationSheet(user, studentPoints) {
     summaryY += 16;
     doc.text(`SAP Mark (per course, out of 5): ${sapMark}`, 30, summaryY);
     summaryY += 22;
+
+    if (summaryY + 150 > pageHeight - 40) {
+      doc.addPage();
+      summaryY = 30;
+    }
+    summaryY = drawInstructions(doc, 30, summaryY, pageWidth - 60) + 14;
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.textDark);
     doc.text("Category of Marks for SAP:", 30, summaryY);

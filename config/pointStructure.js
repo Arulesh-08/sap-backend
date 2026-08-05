@@ -84,6 +84,32 @@ const POINT_STRUCTURE = {
       },
     },
   },
+  "7. Project to paper/Patent/Product Copyright": {
+    max: 100,
+    types: {
+      "SCI Indexed": { "Submitted": 10, "Published": 50 },
+      "WOS/Scopus Journal/Conference": { "Submitted": 10, "Published": 30 },
+      "Other Journal/Conference": { "Submitted/Published": 5 },
+      "Patent": { "Applied": 10, "Published": 20, "Obtained": 100 },
+      "Copyright": { "Applied": 5, "Published": 10 },
+    },
+  },
+  "8. GATE/CAT/Govt. Exams": {
+    max: 150,
+    types: {
+      "GATE/CAT/GRE": { "Appeared": 25, "Qualified": 100, "Cleared Govt. Exams": 100 },
+      "Placement and Internship": {
+        "Placed": 50,
+        "Placed with internship": 75,
+        "Internship without Placement": 25,
+      },
+      "Entrepreneurship": {
+        "Workshop attended": 10,
+        "Registered for startup": 50,
+        "Released product": 100,
+      },
+    },
+  },
 };
 
 // Looks up the exact point value for a category/type/tier combination.
