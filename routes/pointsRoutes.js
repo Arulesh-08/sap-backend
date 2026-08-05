@@ -28,11 +28,23 @@ router.get("/categories", protect, (req, res) => {
 // Points are NEVER taken from the client — always looked up server-side from
 // category+type+tier, so a tampered request can't claim points it isn't entitled to.
 // POST /api/points/submit  (multipart/form-data, field name: "certificate")
+function handleUpload(req, res, next) {
+  upload.single("certificate")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ message: "Certificate file must be 200KB or smaller." });
+      }
+      return res.status(400).json({ message: err.message || "File upload failed." });
+    }
+    next();
+  });
+}
+
 router.post(
   "/submit",
   protect,
   allowRoles("student"),
-  upload.single("certificate"),
+  handleUpload,
   async (req, res) => {
     try {
       const fs = require("fs");
