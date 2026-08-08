@@ -38,7 +38,7 @@ const activitySchema = new mongoose.Schema({
   currentStage: {
     type: String,
     enum: ["mentor", "advisor", "hod", "completed", "rejected"],
-    default: "mentor",
+    default: "advisor",
   },
   mentorApproval: { type: approvalStepSchema, default: () => ({}) },
   advisorApproval: { type: approvalStepSchema, default: () => ({}) },
