@@ -8,6 +8,9 @@ const { POINT_STRUCTURE, getPoints } = require("../config/pointStructure");
 
 const router = express.Router();
 
+// Mentor stage is disabled — new submissions start at "advisor" (schema default).
+// Kept here so any OLD activities still sitting at "mentor" from before this
+// change can still be advanced normally if a mentor account reviews them.
 const NEXT_STAGE = {
   mentor: "advisor",
   advisor: "hod",
