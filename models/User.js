@@ -60,6 +60,8 @@ const userSchema = new mongoose.Schema(
       },
     },
     department: { type: String, required: true },
+    resetToken: { type: String, default: null },
+    resetTokenExpires: { type: Date, default: null },
   },
   { timestamps: true }
 );

@@ -72,4 +72,74 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// POST /api/auth/verify-reset
+// Step 1: student provides roll number + registered email.
+// If they match a student record, issues a short-lived token so the
+// reset form can proceed. No email is sent — the token is returned
+// directly and held in sessionStorage on the frontend.
+router.post("/verify-reset", async (req, res) => {
+  try {
+    const { rollNumber, email } = req.body;
+    if (!rollNumber || !email) {
+      return res.status(400).json({ message: "Roll number and email are required." });
+    }
+
+    const user = await User.findOne({
+      rollNumber: rollNumber.trim(),
+      email: email.toLowerCase().trim(),
+      role: "student",
+    });
+
+    if (!user) {
+      // Deliberately vague — don't reveal whether rollNumber or email was wrong
+      return res.status(400).json({ message: "No student account found with that roll number and email combination." });
+    }
+
+    // Generate a 6-digit numeric OTP-style token, valid for 10 minutes
+    const token = Math.floor(100000 + Math.random() * 900000).toString();
+    user.resetToken = token;
+    user.resetTokenExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    res.json({ message: "Verified. Proceed to reset your password.", token, userId: user._id });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/auth/reset-password
+// Step 2: student provides the token from step 1 + their new password.
+// Token is checked for validity and expiry, then cleared on use.
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { userId, token, newPassword } = req.body;
+    if (!userId || !token || !newPassword) {
+      return res.status(400).json({ message: "All fields are required." });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters." });
+    }
+
+    const user = await User.findById(userId);
+    if (!user || user.resetToken !== token || !user.resetTokenExpires) {
+      return res.status(400).json({ message: "Invalid or expired reset session. Please start over." });
+    }
+    if (user.resetTokenExpires < new Date()) {
+      user.resetToken = null;
+      user.resetTokenExpires = null;
+      await user.save();
+      return res.status(400).json({ message: "Reset session expired (10 minutes). Please start over." });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetToken = null;
+    user.resetTokenExpires = null;
+    await user.save();
+
+    res.json({ message: "Password reset successfully. You can now log in." });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
