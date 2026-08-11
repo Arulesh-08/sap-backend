@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { protect } = require("../middleware/auth");
 const router = express.Router();
 const ADMIN_EMAIL = "jvarulesh@gmail.com";
 
@@ -74,25 +75,40 @@ router.post("/login", async (req, res) => {
 
 // POST /api/auth/verify-reset
 // Step 1: student provides roll number + registered email.
-// If they match a student record, issues a short-lived token so the
+// Staff provides registered email only.
+// If they match a user record, issues a short-lived token so the
 // reset form can proceed. No email is sent — the token is returned
 // directly and held in sessionStorage on the frontend.
 router.post("/verify-reset", async (req, res) => {
   try {
     const { rollNumber, email } = req.body;
-    if (!rollNumber || !email) {
-      return res.status(400).json({ message: "Roll number and email are required." });
+    if (!email) {
+      return res.status(400).json({ message: "Email is required." });
     }
 
-    const user = await User.findOne({
-      rollNumber: rollNumber.trim(),
-      email: email.toLowerCase().trim(),
-      role: "student",
-    });
+    const emailLower = email.toLowerCase().trim();
+    const isStudent = emailLower.endsWith("@kongu.edu");
+
+    let query = { email: emailLower };
+    if (isStudent) {
+      if (!rollNumber) {
+        return res.status(400).json({ message: "Roll number is required for students." });
+      }
+      query.rollNumber = rollNumber.trim();
+      query.role = "student";
+    } else {
+      // For staff, they must have a valid role (mentor, advisor, hod, admin)
+      query.role = { $in: ["mentor", "advisor", "hod", "admin"] };
+    }
+
+    const user = await User.findOne(query);
 
     if (!user) {
-      // Deliberately vague — don't reveal whether rollNumber or email was wrong
-      return res.status(400).json({ message: "No student account found with that roll number and email combination." });
+      return res.status(400).json({
+        message: isStudent
+          ? "No student account found with that roll number and email combination."
+          : "No staff/approver account found with that email address.",
+      });
     }
 
     // Generate a 6-digit numeric OTP-style token, valid for 10 minutes
@@ -108,7 +124,7 @@ router.post("/verify-reset", async (req, res) => {
 });
 
 // POST /api/auth/reset-password
-// Step 2: student provides the token from step 1 + their new password.
+// Step 2: user provides the token from step 1 + their new password.
 // Token is checked for validity and expiry, then cleared on use.
 router.post("/reset-password", async (req, res) => {
   try {
@@ -137,6 +153,37 @@ router.post("/reset-password", async (req, res) => {
     await user.save();
 
     res.json({ message: "Password reset successfully. You can now log in." });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/auth/change-password
+// Exposes password change for logged-in users.
+router.post("/change-password", protect, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new passwords are required." });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "New password must be at least 6 characters." });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Incorrect current password." });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ message: "Password updated successfully." });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
