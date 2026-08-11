@@ -269,6 +269,73 @@ router.patch(
 );
 
 
+// GET /api/points/student-summary
+// Returns all registered students with per-category submission counts
+// where the activity has passed at least the advisor stage (advisor-approved or completed).
+// Used by the Class Advisor spreadsheet-style summary table.
+router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod"), async (req, res) => {
+  try {
+    const CATEGORIES = [
+      "1. Paper/Poster/Project Presentation",
+      "2. Techno Managerial Events",
+      "3. Sports & Games",
+      "4. Membership & Social Activities",
+      "5. Leadership/Organizing Events",
+      "6. Non-Credit Value-Added Course/IPT",
+      "7. Project to paper/Patent/Product Copyright",
+      "8. GATE/CAT/Govt. Exams",
+    ];
+
+    // Get all students ordered by roll number
+    const students = await require("../models/User")
+      .find({ role: "student", isApproved: true })
+      .select("name rollNumber department")
+      .sort({ rollNumber: 1 });
+
+    // Get all point records in one query
+    const allRecords = await StudentPoints.find({}).populate("student", "_id");
+    const recordByStudent = {};
+    allRecords.forEach((r) => {
+      if (r.student) recordByStudent[r.student._id.toString()] = r;
+    });
+
+    const summary = students.map((student) => {
+      const record = recordByStudent[student._id.toString()];
+      const categoryCounts = {};
+      let total = 0;
+
+      CATEGORIES.forEach((cat) => { categoryCounts[cat] = 0; });
+
+      if (record) {
+        record.activities.forEach((activity) => {
+          // Count if advisor-approved (passed advisor stage) or fully completed
+          const advisorPassed =
+            activity.advisorApproval?.status === "approved" ||
+            activity.currentStage === "completed";
+
+          if (advisorPassed && CATEGORIES.includes(activity.category)) {
+            categoryCounts[activity.category] += 1;
+            total += 1;
+          }
+        });
+      }
+
+      return {
+        studentId: student._id,
+        name: student.name,
+        rollNumber: student.rollNumber || "-",
+        department: student.department,
+        categoryCounts,
+        total,
+      };
+    });
+
+    res.json({ categories: CATEGORIES, students: summary });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Mentor/advisor/HOD can revoke a FULLY VERIFIED (completed) activity — e.g. if
 // fraudulent proof is discovered after the fact. Any of the three roles can do
 // this regardless of who originally approved which stage. Sends it back to
