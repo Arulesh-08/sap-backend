@@ -104,8 +104,8 @@ router.get("/summary/advisor", protect, async (req, res) => {
               activity.advisorApproval?.status === "approved" ||
               activity.currentStage === "completed";
             if (advisorPassed && CATEGORIES.includes(activity.category)) {
-              categoryPoints[activity.category] += activity.pointsApproved || 0;
-              total += activity.pointsApproved || 0;
+              categoryPoints[activity.category] += activity.pointsClaimed || 0;
+              total += activity.pointsClaimed || 0;
             }
           });
         }
