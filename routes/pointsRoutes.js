@@ -77,7 +77,7 @@ router.post(
         if (duplicate) {
           // req.file.filename is the Cloudinary public_id — delete the redundant
           // upload from Cloudinary itself, since there's no local file to unlink.
-          await cloudinary.uploader.destroy(req.file.filename, { resource_type: "auto" });
+          await cloudinary.uploader.destroy(req.file.filename, { resource_type: req.file.mimetype?.startsWith("video/") ? "video" : req.file.mimetype === "application/pdf" ? "raw" : "image" });
           return res.status(400).json({
             message: "This certificate has already been submitted for a previous activity.",
           });

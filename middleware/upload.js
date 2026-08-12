@@ -10,13 +10,17 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder: "sap-certificates",
-    allowed_formats: ["jpg", "jpeg", "png", "pdf"],
-    resource_type: "auto", // handles PDFs correctly alongside images
+  params: async (req, file) => {
+    let resource_type = "image";
+    if (file.mimetype === "application/pdf") resource_type = "raw";
+    if (file.mimetype.startsWith("video/")) resource_type = "video";
+    return {
+      folder: "sap-certificates",
+      allowed_formats: ["jpg", "jpeg", "png", "pdf"],
+      resource_type,
+    };
   },
 });
 
 const upload = multer({ storage, limits: { fileSize: 200 * 1024 } });
-
 module.exports = upload;
