@@ -52,9 +52,9 @@ router.get("/summary/advisor", protect, async (req, res) => {
 
       // Header
       doc.rect(0, 0, pageWidth, 60).fill("#1a3c34");
-      doc.fillColor("#fff").font("Helvetica-Bold").fontSize(13)
+      doc.fillColor("#fff").font("Helvetica-Bold").fontSize(15)
         .text("KONGU ENGINEERING COLLEGE — DEPARTMENT OF INFORMATION TECHNOLOGY", 30, 12, { width: pageWidth - 60 });
-      doc.font("Helvetica").fontSize(9).fillColor("#d8e8e0")
+      doc.font("Helvetica").fontSize(10.5).fillColor("#d8e8e0")
         .text("Class Advisor SAP Summary Sheet — Advisor-Approved Submission Counts", 30, 34, { width: pageWidth - 60 });
 
       doc.fillColor("#222");
@@ -66,27 +66,27 @@ router.get("/summary/advisor", protect, async (req, res) => {
       const totalW = 40;
 
       // Table header
-      doc.font("Helvetica-Bold").fontSize(7);
+      doc.font("Helvetica-Bold").fontSize(9);
       let x = 30;
-      doc.rect(x, y, snW, 28).strokeColor("#888").lineWidth(0.4).stroke();
+      doc.rect(x, y, snW, 34).strokeColor("#888").lineWidth(0.4).stroke();
       doc.text("S.No", x + 2, y + 10, { width: snW - 4, align: "center" }); x += snW;
-      doc.rect(x, y, rollW, 28).strokeColor("#888").stroke();
+      doc.rect(x, y, rollW, 34).strokeColor("#888").stroke();
       doc.text("Roll No.", x + 2, y + 10, { width: rollW - 4, align: "center" }); x += rollW;
-      doc.rect(x, y, nameW, 28).strokeColor("#888").stroke();
+      doc.rect(x, y, nameW, 34).strokeColor("#888").stroke();
       doc.text("Name", x + 2, y + 10, { width: nameW - 4, align: "center" }); x += nameW;
 
       SHORT_CATS.forEach((cat) => {
-        doc.rect(x, y, catW, 28).strokeColor("#888").stroke();
+        doc.rect(x, y, catW, 34).strokeColor("#888").stroke();
         doc.text(cat, x + 2, y + 4, { width: catW - 4, align: "center" });
         x += catW;
       });
 
-      doc.rect(x, y, totalW, 28).strokeColor("#888").stroke();
+      doc.rect(x, y, totalW, 34).strokeColor("#888").stroke();
       doc.text("Total", x + 2, y + 10, { width: totalW - 4, align: "center" });
-      y += 28;
+      y += 34;
 
       // Rows
-      doc.font("Helvetica").fontSize(7);
+      doc.font("Helvetica").fontSize(8.5);
       students.forEach((student, idx) => {
         if (y > doc.page.height - 40) {
           doc.addPage();
@@ -110,7 +110,7 @@ router.get("/summary/advisor", protect, async (req, res) => {
           });
         }
 
-        const rowH = 18;
+        const rowH = 24;
         const bg = idx % 2 === 0 ? "#f9f9f9" : "#ffffff";
         x = 30;
 
