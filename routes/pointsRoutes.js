@@ -111,7 +111,7 @@ router.get("/my-points", protect, allowRoles("student"), async (req, res) => {
   }
 });
 
-router.get("/pending", protect, allowRoles("mentor", "advisor", "hod"), async (req, res) => {
+router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
     const stage = req.user.role;
 
@@ -149,7 +149,7 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod"), async (r
   }
 });
 
-router.get("/all", protect, allowRoles("mentor", "advisor", "hod"), async (req, res) => {
+router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
     const records = await StudentPoints.find({}).populate("student", "name rollNumber department");
 
@@ -189,7 +189,7 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod"), async (req, 
   }
 });
 
-router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod"), async (req, res) => {
+router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
     const records = await StudentPoints.find({});
 
@@ -216,7 +216,7 @@ router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod"), async 
 router.patch(
   "/:studentId/activity/:activityId",
   protect,
-  allowRoles("mentor", "advisor", "hod"),
+  allowRoles("mentor", "advisor", "hod", "admin"),
   async (req, res) => {
     try {
       const { status, pointsApproved, remarks } = req.body;
@@ -273,7 +273,7 @@ router.patch(
 // Returns all registered students with per-category submission counts
 // where the activity has passed at least the advisor stage (advisor-approved or completed).
 // Used by the Class Advisor spreadsheet-style summary table.
-router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod"), async (req, res) => {
+router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
     const CATEGORIES = [
       "1. Paper/Poster/Project Presentation",
@@ -343,7 +343,7 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod"), 
 router.patch(
   "/:studentId/activity/:activityId/revoke",
   protect,
-  allowRoles("mentor", "advisor", "hod"),
+  allowRoles("mentor", "advisor", "hod", "admin"),
   async (req, res) => {
     try {
       const { remarks } = req.body;
