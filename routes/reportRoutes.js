@@ -94,8 +94,8 @@ router.get("/summary/advisor", protect, async (req, res) => {
         }
 
         const record = recordByStudent[student._id.toString()];
-        const categoryCounts = {};
-        CATEGORIES.forEach((cat) => { categoryCounts[cat] = 0; });
+        const categoryPoints = {};
+        CATEGORIES.forEach((cat) => { categoryPoints[cat] = 0; });
         let total = 0;
 
         if (record) {
@@ -104,8 +104,8 @@ router.get("/summary/advisor", protect, async (req, res) => {
               activity.advisorApproval?.status === "approved" ||
               activity.currentStage === "completed";
             if (advisorPassed && CATEGORIES.includes(activity.category)) {
-              categoryCounts[activity.category] += 1;
-              total += 1;
+              categoryPoints[activity.category] += activity.pointsApproved || 0;
+              total += activity.pointsApproved || 0;
             }
           });
         }
@@ -127,7 +127,7 @@ router.get("/summary/advisor", protect, async (req, res) => {
         doc.text(student.name, x + 2, y + 5, { width: nameW - 4, ellipsis: true }); x += nameW;
 
         CATEGORIES.forEach((cat) => {
-          const count = categoryCounts[cat];
+          const count = categoryPoints[cat];
           doc.rect(x, y, catW, rowH).strokeColor("#ccc").stroke();
           if (count > 0) {
             doc.fillColor("#1a7a4c").font("Helvetica-Bold")
