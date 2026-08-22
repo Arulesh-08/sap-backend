@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const AUTHORIZED_ADMIN_EMAIL = "jvarulesh@gmail.com"// Replace with your exact admin email
+const AUTHORIZED_ADMIN_EMAIL = process.env.AUTHORIZED_ADMIN_EMAIL || "";
 
 const userSchema = new mongoose.Schema(
   {
@@ -13,6 +13,9 @@ const userSchema = new mongoose.Schema(
       trim: true,
       validate: {
         validator: function (email) {
+          if (email.toLowerCase() === AUTHORIZED_ADMIN_EMAIL.toLowerCase()) {
+            return true; // designated admin email is exempt from domain restriction
+          }
           if (this.role === "student") {
             return email.endsWith("@kongu.edu");
           } else {

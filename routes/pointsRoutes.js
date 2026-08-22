@@ -52,7 +52,11 @@ router.post(
     try {
       const fs = require("fs");
       const { category, type, tier, title } = req.body;
-      const proofUrl = req.file ? req.file.path : undefined;
+
+      if (!req.file) {
+        return res.status(400).json({ message: "A certificate file is required to submit an activity." });
+      }
+      const proofUrl = req.file.path;
 
       const points = getPoints(category, type, tier);
       if (points === null) {
