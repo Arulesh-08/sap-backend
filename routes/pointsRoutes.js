@@ -35,7 +35,7 @@ function handleUpload(req, res, next) {
   upload.single("certificate")(req, res, (err) => {
     if (err) {
       if (err.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({ message: "Certificate file must be 200KB or smaller." });
+        return res.status(400).json({ message: "Certificate file must be 70KB or smaller." });
       }
       return res.status(400).json({ message: err.message || "File upload failed." });
     }
