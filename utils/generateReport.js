@@ -302,8 +302,11 @@ function buildEvaluationSheet(user, studentPoints) {
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
+      const savedBottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
       doc.fontSize(7).fillColor(COLORS.textMuted)
         .text(`Page ${i + 1} of ${range.count}`, 30, pageHeight - 24, { width: pageWidth - 60, align: "center" });
+      doc.page.margins.bottom = savedBottomMargin;
     }
 
     doc.end();
