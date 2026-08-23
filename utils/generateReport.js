@@ -66,6 +66,13 @@ function drawVerifiedStamp(doc, summary, pageWidth) {
   doc.fillColor(COLORS.textDark);
 }
 
+function estimateBoxHeight(entry) {
+  let rowCount = 0;
+  Object.keys(entry.types).forEach((t) => { rowCount += Object.keys(entry.types[t]).length; });
+  const rowH = 13, headerH = 16, totalRowH = 15, verifyRowH = 16;
+  return headerH + 8 + rowCount * rowH + totalRowH + verifyRowH + 6;
+}
+
 function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
   const rowH = 13;
   const headerH = 16;
@@ -85,9 +92,9 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
   doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(7.5)
     .text(`${category}  (Max ${entry.max})`, x + 4, y + 4, { width: width - 8 });
 
-  const labelW = width * 0.58;
+  const labelW = width * 0.6;
   const maxColX = x + labelW + 4;
-  const maxColW = width * 0.18;
+  const maxColW = width * 0.16;
   const awardColX = maxColX + maxColW + 2;
   const awardColW = width - labelW - maxColW - 12;
 
@@ -134,10 +141,10 @@ function drawCategoryBox(doc, x, y, width, category, entry, studentActivities) {
   const checkboxY = rowY + (verifyRowH - checkboxSize) / 2;
   doc.rect(x + 4, checkboxY, checkboxSize, checkboxSize).strokeColor(COLORS.border).lineWidth(0.6).stroke();
   doc.fillColor(COLORS.textDark).font("Helvetica").fontSize(6.5)
-    .text("Verified", x + 4 + checkboxSize + 3, rowY + 4, { width: 34 });
+    .text("Verified", x + 4 + checkboxSize + 3, rowY + 4, { width: 40 });
   doc.font("Helvetica").fontSize(6.5)
-    .text("Verified By: ______________________", x + 4 + checkboxSize + 40, rowY + 4, {
-      width: width - checkboxSize - 52,
+    .text("Verified By: ______________________", x + 4 + checkboxSize + 46, rowY + 4, {
+      width: width - checkboxSize - 58,
     });
 
   return { bottomY: y + boxHeight, categoryTotal };
@@ -154,8 +161,14 @@ const INSTRUCTIONS = [
   "Any false/fake proof claimed for the marks will be considered as mal practice. In such case, the total marks will be given zero only.",
 ];
 
-// Draws the official sheet's Instructions box verbatim, wrapping each bullet
-// to fit the given width, and returns the Y coordinate just below it.
+function estimateInstructionsHeight(doc, width) {
+  const padding = 6, headingH = 12, lineGap = 3, bulletIndent = 10;
+  const textWidth = width - padding * 2 - bulletIndent;
+  doc.font("Helvetica").fontSize(6.5);
+  const lineHeights = INSTRUCTIONS.map((line) => doc.heightOfString(line, { width: textWidth }) + lineGap);
+  return headingH + lineHeights.reduce((a, b) => a + b, 0) + padding * 2;
+}
+
 function drawInstructions(doc, x, y, width) {
   const padding = 6;
   const headingH = 12;
@@ -194,6 +207,8 @@ function buildEvaluationSheet(user, studentPoints) {
 
     const pageWidth = doc.page.width;
     const pageHeight = doc.page.height;
+    const boxWidth = pageWidth - 60;
+    const bottomMargin = 40;
 
     const summary = { total: 0, approved: 0, pending: 0, rejected: 0 };
     studentPoints.activities.forEach((a) => {
@@ -221,71 +236,68 @@ function buildEvaluationSheet(user, studentPoints) {
     });
 
     const categories = Object.keys(POINT_STRUCTURE);
-    const colWidth = (pageWidth - 60 - 16) / 2;
-    const leftX = 30;
-    const rightX = 30 + colWidth + 16;
-    let leftY = infoY + 24;
-    let rightY = infoY + 24;
+    let y = infoY + 24;
     let grandTotalApproved = 0;
 
-    categories.forEach((category, idx) => {
+    // SINGLE COLUMN, stacked — no left/right desync, no spurious blank pages
+    categories.forEach((category) => {
       const entry = POINT_STRUCTURE[category];
       const studentActivities = byCategory[category] || [];
-      const useLeft = idx % 2 === 0;
+      const estimatedHeight = estimateBoxHeight(entry);
 
-      let rowCount = 0;
-      Object.keys(entry.types).forEach((t) => { rowCount += Object.keys(entry.types[t]).length; });
-      const estimatedHeight = 16 + 8 + rowCount * 13 + 15 + 16 + 6;
-
-      const y = useLeft ? leftY : rightY;
-      if (y + estimatedHeight > pageHeight - 40) {
+      if (y + estimatedHeight > pageHeight - bottomMargin) {
         doc.addPage();
-        leftY = 30;
-        rightY = 30;
+        y = 30;
       }
 
-      const finalX = useLeft ? leftX : rightX;
-      const finalY = useLeft ? leftY : rightY;
-      const { bottomY, categoryTotal } = drawCategoryBox(doc, finalX, finalY, colWidth, category, entry, studentActivities);
+      const { bottomY, categoryTotal } = drawCategoryBox(doc, 30, y, boxWidth, category, entry, studentActivities);
       grandTotalApproved += categoryTotal;
-
-      if (useLeft) leftY = bottomY + 10;
-      else rightY = bottomY + 10;
+      y = bottomY + 8;
     });
 
-    let summaryY = Math.max(leftY, rightY);
-    if (summaryY > pageHeight - 130) {
+    // Summary block
+    const summaryBlockHeight = 10 + 16 + 16 + 22; // divider + 2 lines + gap
+    if (y + summaryBlockHeight > pageHeight - bottomMargin) {
       doc.addPage();
-      summaryY = 30;
+      y = 30;
     }
 
-    doc.moveTo(30, summaryY).lineTo(pageWidth - 30, summaryY).strokeColor(COLORS.border).lineWidth(0.5).stroke();
-    summaryY += 10;
+    doc.moveTo(30, y).lineTo(pageWidth - 30, y).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+    y += 10;
 
     const sapMark = calculateSAPMark(grandTotalApproved);
     doc.font("Helvetica-Bold").fontSize(11).fillColor(COLORS.bannerDark);
-    doc.text(`Total Activity Points Earned (Approved): ${grandTotalApproved}`, 30, summaryY);
-    summaryY += 16;
-    doc.text(`SAP Mark (per course, out of 5): ${sapMark}`, 30, summaryY);
-    summaryY += 22;
+    doc.text(`Total Activity Points Earned (Approved): ${grandTotalApproved}`, 30, y);
+    y += 16;
+    doc.text(`SAP Mark (per course, out of 5): ${sapMark}`, 30, y);
+    y += 22;
 
-    if (summaryY + 150 > pageHeight - 40) {
+    // Instructions block — only break to a new page if it genuinely doesn't fit
+    const instructionsHeight = estimateInstructionsHeight(doc, boxWidth);
+    if (y + instructionsHeight > pageHeight - bottomMargin) {
       doc.addPage();
-      summaryY = 30;
+      y = 30;
     }
-    summaryY = drawInstructions(doc, 30, summaryY, pageWidth - 60) + 14;
+    y = drawInstructions(doc, 30, y, boxWidth) + 14;
+
+    // Marks conversion table + signatures — same page unless truly out of room
+    const tailHeight = 12 + 14 + 24 + 18 + 18;
+    if (y + tailHeight > pageHeight - bottomMargin) {
+      doc.addPage();
+      y = 30;
+    }
 
     doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.textDark);
-    doc.text("Category of Marks for SAP:", 30, summaryY);
-    summaryY += 12;
+    doc.text("Category of Marks for SAP:", 30, y);
+    y += 12;
     doc.font("Helvetica").fontSize(7.5);
-    doc.text("150+ = 5   |   100-149 = 4   |   50-99 = 3   |   25-49 = 2   |   10-24 = 1   |   Below 10 = 0", 30, summaryY);
-    summaryY += 24;
+    doc.text("150+ = 5   |   100-149 = 4   |   50-99 = 3   |   25-49 = 2   |   10-24 = 1   |   Below 10 = 0", 30, y);
+    y += 24;
 
     doc.font("Helvetica").fontSize(9).fillColor(COLORS.textDark);
-    doc.text("Student Signature: ____________________", 30, summaryY);
-    summaryY += 18;
-    doc.text("Class Advisor Verified: ____________________", 30, summaryY);
+    doc.text("Student Signature: ____________________", 30, y);
+    y += 18;
+    doc.text("Class Advisor Verified: ____________________", 30, y);
 
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {
@@ -298,7 +310,6 @@ function buildEvaluationSheet(user, studentPoints) {
   });
 }
 
-// Downloads a file from a remote URL (Cloudinary) into a Buffer using Node's built-in fetch
 async function downloadFile(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to download certificate: ${res.status}`);
@@ -306,8 +317,6 @@ async function downloadFile(url) {
   return Buffer.from(arrayBuffer);
 }
 
-// certificateUrls are now full Cloudinary URLs (not local paths). Each is downloaded
-// over HTTPS, deduped by URL, and appended as its own labeled page.
 async function appendCertificates(mainPdfBuffer, studentPoints, certificateUrls) {
   const finalPdf = await PDFLibDocument.create();
 
@@ -349,7 +358,6 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificateUrls)
       if (ext === ".png") {
         image = await finalPdf.embedPng(fileBytes);
       } else {
-        // default to JPEG for .jpg/.jpeg or unknown extensions from Cloudinary
         image = await finalPdf.embedJpg(fileBytes);
       }
 
@@ -376,7 +384,7 @@ async function appendCertificates(mainPdfBuffer, studentPoints, certificateUrls)
         height: drawHeight,
       });
     } catch (err) {
-      continue; // skip a certificate that fails to download/embed rather than break the whole PDF
+      continue;
     }
   }
 
