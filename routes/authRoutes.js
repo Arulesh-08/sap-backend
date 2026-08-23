@@ -189,4 +189,27 @@ router.post("/change-password", protect, async (req, res) => {
   }
 });
 
+
+// GET /api/auth/me — returns this user's current info fresh from the database.
+// Used by the frontend to pick up name/department changes an admin made,
+// without requiring the user to log out and back in.
+router.get("/me", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const role = user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : user.role;
+
+    res.json({
+      id: user._id,
+      name: user.name,
+      role,
+      department: user.department,
+      rollNumber: user.rollNumber,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
