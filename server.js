@@ -32,6 +32,7 @@ mongoose
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/points", require("./routes/pointsRoutes"));
 app.use("/api/admin", require("./routes/admin"));
+app.use("/api/otp", require("./routes/otpRoutes"));
 
 // Check if reportRoutes exists before mounting
 if (fs.existsSync(path.join(__dirname, "routes", "reportRoutes.js"))) {
