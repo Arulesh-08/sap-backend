@@ -3,16 +3,16 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { protect } = require("../middleware/auth");
-const { sendOtpEmail } = require("../utils/mailer");
 const router = express.Router();
 const ADMIN_EMAIL = "jvarulesh@gmail.com";
-const allowedDomains = ["kongu.edu", "kongu.ac.in"];
 
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password, role, rollNumber, department } = req.body;
 
+    // Public registration ONLY ever creates students — mentor/advisor/HOD
+    // accounts must be created by the admin directly (see createStaff.js script)
     const finalRole =
       email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "admin" : "student";
 
@@ -76,9 +76,9 @@ router.post("/login", async (req, res) => {
 // POST /api/auth/verify-reset
 // Step 1: student provides roll number + registered email.
 // Staff provides registered email only.
-// If they match a user record, a 6-digit code is generated and EMAILED
-// to the user's registered address. It is never returned in the API
-// response — the user must check their inbox.
+// If they match a user record, issues a short-lived token so the
+// reset form can proceed. No email is sent — the token is returned
+// directly and held in sessionStorage on the frontend.
 router.post("/verify-reset", async (req, res) => {
   try {
     const { rollNumber, email } = req.body;
@@ -87,11 +87,6 @@ router.post("/verify-reset", async (req, res) => {
     }
 
     const emailLower = email.toLowerCase().trim();
-    const emailDomain = emailLower.split("@")[1];
-    if (!allowedDomains.includes(emailDomain)) {
-      return res.status(400).json({ message: "Only kongu.edu or kongu.ac.in emails are allowed." });
-    }
-
     const isStudent = emailLower.endsWith("@kongu.edu");
 
     let query = { email: emailLower };
@@ -102,6 +97,7 @@ router.post("/verify-reset", async (req, res) => {
       query.rollNumber = rollNumber.trim();
       query.role = "student";
     } else {
+      // For staff, they must have a valid role (mentor, advisor, hod, admin)
       query.role = { $in: ["mentor", "advisor", "hod", "admin"] };
     }
 
@@ -115,21 +111,21 @@ router.post("/verify-reset", async (req, res) => {
       });
     }
 
+    // Generate a 6-digit numeric OTP-style token, valid for 10 minutes
     const token = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetToken = token;
     user.resetTokenExpires = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
-    await sendOtpEmail(user.email, token, "password-reset");
-
-    res.json({ message: "A verification code has been sent to your registered email.", userId: user._id });
+    res.json({ message: "Verified. Proceed to reset your password.", token, userId: user._id });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 // POST /api/auth/reset-password
-// Step 2: user provides the code from their email + their new password.
+// Step 2: user provides the token from step 1 + their new password.
+// Token is checked for validity and expiry, then cleared on use.
 router.post("/reset-password", async (req, res) => {
   try {
     const { userId, token, newPassword } = req.body;
@@ -163,6 +159,7 @@ router.post("/reset-password", async (req, res) => {
 });
 
 // POST /api/auth/change-password
+// Exposes password change for logged-in users.
 router.post("/change-password", protect, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -192,7 +189,10 @@ router.post("/change-password", protect, async (req, res) => {
   }
 });
 
-// GET /api/auth/me
+
+// GET /api/auth/me — returns this user's current info fresh from the database.
+// Used by the frontend to pick up name/department changes an admin made,
+// without requiring the user to log out and back in.
 router.get("/me", protect, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
