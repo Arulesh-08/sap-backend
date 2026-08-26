@@ -26,14 +26,21 @@ if (!fs.existsSync(uploadsDir)) {
 // ── Security headers (Helmet) ────────────────────────────────────────────────
 app.use(helmet());
 
-// ── CORS — locked to the configured frontend origin ──────────────────────────
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5173";
+// ── CORS — locked to configured frontend origin(s) ───────────────────────────
+// ALLOWED_ORIGIN can be a single URL or a comma-separated list, e.g.:
+//   https://sap-frontend-lake.vercel.app,http://localhost:5173
+// Falls back to the known Vercel URL + localhost so the site works even if
+// the env var isn't set yet in the hosting dashboard.
+const rawOrigins = process.env.ALLOWED_ORIGIN
+  || "https://sap-frontend-lake.vercel.app,http://localhost:5173";
+const ALLOWED_ORIGINS = new Set(rawOrigins.split(",").map((o) => o.trim()));
+
 app.use(
   cors({
     origin: function (origin, callback) {
       // Allow same-origin / server-to-server calls (no Origin header)
       if (!origin) return callback(null, true);
-      if (origin === ALLOWED_ORIGIN) return callback(null, true);
+      if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
       callback(new Error(`CORS: origin '${origin}' is not allowed`));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
