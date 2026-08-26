@@ -1,10 +1,12 @@
 // Exact category/type/tier point values from the official KEC SAP Evaluation Sheet
-// (Revised version W.E.F 10.10.2025). This is the single source of truth for:
-//  - the dropdown options shown to students
-//  - server-side point calculation (student input is never trusted)
-//  - the PDF report layout
+// (Revised version W.E.F 10.10.2025). This is the FALLBACK source of truth used
+// when no custom structure has been uploaded by the admin yet.
+//
+// When admin uploads and publishes a new structure via the Admin Dashboard,
+// it is saved to MongoDB and cached here in memory. getPoints() always prefers
+// the DB version. Call refreshPointStructure() after a publish to reload it.
 
-const POINT_STRUCTURE = {
+const STATIC_POINT_STRUCTURE = {
   "1. Paper/Poster/Project Presentation": {
     max: 150,
     types: {
@@ -112,15 +114,67 @@ const POINT_STRUCTURE = {
   },
 };
 
+// ── Dynamic cache ─────────────────────────────────────────────────────────────
+// Holds the DB-published structure once loaded. null = not yet loaded.
+let _cachedStructure = null;
+let _cacheLoaded = false;
+
+// Loads the structure from MongoDB (if any), falls back to static.
+// Called lazily on first getPoints() call, and explicitly after admin publishes.
+async function loadStructureFromDB() {
+  try {
+    // Lazy require to avoid circular imports at module load time
+    const PointStructure = require("../models/PointStructure");
+    const doc = await PointStructure.findOne({}).lean();
+    if (doc && doc.structure && Object.keys(doc.structure).length > 0) {
+      _cachedStructure = doc.structure;
+    } else {
+      _cachedStructure = null; // Use static fallback
+    }
+  } catch {
+    _cachedStructure = null; // DB unavailable — use static
+  }
+  _cacheLoaded = true;
+}
+
+// Call this immediately after admin publishes a new structure so the cache
+// reflects the change without requiring a server restart.
+async function refreshPointStructure() {
+  _cacheLoaded = false;
+  await loadStructureFromDB();
+}
+
+// Returns the active POINT_STRUCTURE: DB version if published, else static.
+// Exported for routes that need the full structure (e.g. the categories dropdown).
+function getActiveStructure() {
+  return _cachedStructure || STATIC_POINT_STRUCTURE;
+}
+
+// Kept for backward compatibility — the categories endpoint uses this name.
+const POINT_STRUCTURE = new Proxy({}, {
+  get(_, key) { return getActiveStructure()[key]; },
+  ownKeys() { return Object.keys(getActiveStructure()); },
+  getOwnPropertyDescriptor(_, key) {
+    return Object.getOwnPropertyDescriptor(getActiveStructure(), key) || { configurable: true };
+  },
+  has(_, key) { return key in getActiveStructure(); },
+});
+
 // Looks up the exact point value for a category/type/tier combination.
 // Returns null if the combination is invalid (used to reject tampered requests).
-function getPoints(category, type, tier) {
-  const cat = POINT_STRUCTURE[category];
+// Async-aware: loads DB structure on first call if not already cached.
+async function getPoints(category, type, tier) {
+  if (!_cacheLoaded) await loadStructureFromDB();
+  const structure = getActiveStructure();
+  const cat = structure[category];
   if (!cat) return null;
-  const t = cat.types[type];
+  const t = cat.types ? cat.types[type] : cat[type];
   if (!t) return null;
   if (!(tier in t)) return null;
   return t[tier];
 }
 
-module.exports = { POINT_STRUCTURE, getPoints };
+// Warm the cache at startup (non-blocking — failure is safe)
+loadStructureFromDB().catch(() => {});
+
+module.exports = { POINT_STRUCTURE, getPoints, refreshPointStructure, getActiveStructure };

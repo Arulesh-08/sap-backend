@@ -4,7 +4,7 @@ const express = require("express");
 const StudentPoints = require("../models/StudentPoints");
 const { protect, allowRoles } = require("../middleware/auth");
 const upload = require("../middleware/upload");
-const { POINT_STRUCTURE, getPoints } = require("../config/pointStructure");
+const { getPoints, getActiveStructure } = require("../config/pointStructure");
 
 const router = express.Router();
 
@@ -30,7 +30,7 @@ function generateVerificationCode() {
 // GET /api/points/categories — the full nested category/type/tier point structure,
 // straight from the official doc. The dropdown UI is built entirely from this.
 router.get("/categories", protect, (req, res) => {
-  res.json(POINT_STRUCTURE);
+  res.json(getActiveStructure());
 });
 
 // Student submits a new activity for points, with a certificate file attached.
@@ -64,7 +64,7 @@ router.post(
       }
       const proofUrl = req.file.path;
 
-      const points = getPoints(category, type, tier);
+      const points = await getPoints(category, type, tier);
       if (points === null) {
         return res.status(400).json({ message: "Invalid category/type/tier combination" });
       }
