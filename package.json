@@ -11,6 +11,7 @@
     "cloudinary": "^2.10.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^8.6.2",
@@ -19,11 +20,11 @@
     "mammoth": "^1.12.1",
     "mongoose": "^8.5.0",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^9.0.5",
     "pdf-lib": "^1.17.1",
-    "pdfkit": "^0.15.0",
-    "resend": "^6.22.0",
-    "xlsx": "^0.18.5"
+    "pdfkit": "^0.15.0"
+  },
+  "overrides": {
+    "uuid": ">=11.1.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

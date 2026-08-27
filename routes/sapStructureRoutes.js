@@ -1,6 +1,6 @@
 const express = require("express");
 const multer = require("multer");
-const XLSX = require("xlsx");
+const ExcelJS = require("exceljs");
 const mammoth = require("mammoth");
 const router = express.Router();
 const { protect, allowRoles } = require("../middleware/auth");
@@ -15,31 +15,46 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB max
   fileFilter: (req, file, cb) => {
     const allowed = [
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-      "application/vnd.ms-excel",                                           // .xls
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-      "application/msword",                                                 // .doc (may work)
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
     ];
     if (allowed.includes(file.mimetype)) return cb(null, true);
-    // Also check by extension as MIME types can be wrong
     const ext = file.originalname.split(".").pop().toLowerCase();
     if (["xlsx", "xls", "docx", "doc"].includes(ext)) return cb(null, true);
     cb(new Error("Only Excel (.xlsx/.xls) and Word (.docx) files are supported."));
   },
 });
 
-// ── Helper: parse Excel buffer → array of sheets ─────────────────────────────
-function parseExcel(buffer) {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  return workbook.SheetNames.map((name) => {
-    const sheet = workbook.Sheets[name];
-    // sheet_to_json with header:1 gives array of arrays (raw rows)
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-    // Filter out completely empty rows
-    const filtered = rows.filter((row) => row.some((cell) => String(cell).trim() !== ""));
-    if (filtered.length === 0) return null;
-    return { name, headers: filtered[0].map(String), rows: filtered.slice(1) };
-  }).filter(Boolean);
+// ── Helper: parse Excel buffer → array of sheets (using ExcelJS) ──────────────
+async function parseExcel(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  const sheets = [];
+  workbook.eachSheet((worksheet) => {
+    const rows = [];
+    worksheet.eachRow({ includeEmpty: false }, (row) => {
+      // row.values is 1-indexed; index 0 is undefined
+      const cells = row.values.slice(1).map((v) => {
+        if (v === null || v === undefined) return "";
+        if (typeof v === "object" && v.text) return String(v.text); // rich text
+        if (typeof v === "object" && v.result !== undefined) return String(v.result); // formula
+        return String(v);
+      });
+      if (cells.some((c) => c.trim() !== "")) rows.push(cells);
+    });
+
+    if (rows.length === 0) return;
+    sheets.push({
+      name: worksheet.name,
+      headers: rows[0],
+      rows: rows.slice(1),
+    });
+  });
+
+  return sheets;
 }
 
 // ── Helper: parse Word (.docx) buffer ────────────────────────────────────────
@@ -112,7 +127,7 @@ router.post(
       let sheets;
 
       if (["xlsx", "xls"].includes(ext)) {
-        sheets = parseExcel(req.file.buffer);
+        sheets = await parseExcel(req.file.buffer);
       } else if (["docx", "doc"].includes(ext)) {
         sheets = await parseWord(req.file.buffer);
       } else {
