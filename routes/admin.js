@@ -6,6 +6,12 @@ const User = require("../models/User");
 const StudentPoints = require("../models/StudentPoints");
 const { protect, allowRoles } = require("../middleware/auth");
 
+// Strip HTML tags + trim — prevents stored XSS in text fields
+function sanitise(str, maxLen = 200) {
+  if (typeof str !== "string") return "";
+  return str.replace(/<[^>]*>/g, "").trim().slice(0, maxLen);
+}
+
 const NEXT_STAGE = {
   mentor: "advisor",
   advisor: "hod",
@@ -23,7 +29,8 @@ router.get("/users", protect, allowRoles("admin"), async (req, res) => {
     const users = await User.find(filter).select("-password").sort({ createdAt: -1 });
     res.json(users);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[admin/users]", err);
+    res.status(500).json({ message: "Failed to fetch users." });
   }
 });
 
@@ -32,23 +39,34 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
   try {
     const { name, email, password, role, rollNumber, department } = req.body;
 
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Name, email, and password are required." });
+    }
     if (!["student", "mentor", "advisor", "hod"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
+      return res.status(400).json({ message: "Invalid role." });
+    }
+    if (!password || password.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters." });
     }
 
-    const existing = await User.findOne({ email: email.toLowerCase() });
+    const cleanEmail = sanitise(email).toLowerCase();
+    const cleanName  = sanitise(name).slice(0, 120);
+    const cleanRoll  = sanitise(rollNumber || "").slice(0, 20);
+    const cleanDept  = sanitise(department || "").slice(0, 100);
+
+    const existing = await User.findOne({ email: cleanEmail });
     if (existing) {
-      return res.status(400).json({ message: "A user with this email already exists" });
+      return res.status(400).json({ message: "A user with this email already exists." });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
     const user = await User.create({
-      name,
-      email: email.toLowerCase(),
+      name: cleanName,
+      email: cleanEmail,
       password: hashedPassword,
       role,
-      rollNumber,
-      department,
+      rollNumber: cleanRoll,
+      department: cleanDept,
     });
 
     res.status(201).json({
@@ -56,7 +74,8 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
       user: { id: user._id, name: user.name, email: user.email, role: user.role },
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[admin/create-user]", err);
+    res.status(500).json({ message: "Failed to create user." });
   }
 });
 
@@ -64,17 +83,18 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
 router.patch("/rename/:userId", protect, allowRoles("admin"), async (req, res) => {
   try {
     const { name } = req.body;
-    if (!name) return res.status(400).json({ message: "New name is required" });
+    if (!name) return res.status(400).json({ message: "New name is required." });
 
     const user = await User.findById(req.params.userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: "User not found." });
 
-    user.name = name;
+    user.name = sanitise(name).slice(0, 120);
     await user.save();
 
     res.json({ message: "Renamed", user: { id: user._id, name: user.name, email: user.email } });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[admin/rename]", err);
+    res.status(500).json({ message: "Failed to rename user." });
   }
 });
 
@@ -82,10 +102,10 @@ router.patch("/rename/:userId", protect, allowRoles("admin"), async (req, res) =
 router.delete("/user/:userId", protect, allowRoles("admin"), async (req, res) => {
   try {
     const user = await User.findById(req.params.userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: "User not found." });
 
     if (user.role === "admin") {
-      return res.status(403).json({ message: "Cannot delete the admin account" });
+      return res.status(403).json({ message: "Cannot delete the admin account." });
     }
 
     if (user.role === "student") {
@@ -93,9 +113,10 @@ router.delete("/user/:userId", protect, allowRoles("admin"), async (req, res) =>
     }
     await User.deleteOne({ _id: user._id });
 
-    res.json({ message: "User deleted" });
+    res.json({ message: "User deleted." });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[admin/delete-user]", err);
+    res.status(500).json({ message: "Failed to delete user." });
   }
 });
 
@@ -129,7 +150,8 @@ router.get("/all-activities", protect, allowRoles("admin"), async (req, res) => 
 
     res.json(all);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[admin/all-activities]", err);
+    res.status(500).json({ message: "Failed to fetch activities." });
   }
 });
 
@@ -144,11 +166,15 @@ router.patch(
     try {
       const { status, pointsApproved, remarks } = req.body;
 
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Status must be 'approved' or 'rejected'." });
+      }
+
       const record = await StudentPoints.findOne({ student: req.params.studentId });
-      if (!record) return res.status(404).json({ message: "Record not found" });
+      if (!record) return res.status(404).json({ message: "Record not found." });
 
       const activity = record.activities.id(req.params.activityId);
-      if (!activity) return res.status(404).json({ message: "Activity not found" });
+      if (!activity) return res.status(404).json({ message: "Activity not found." });
 
       const currentStage = activity.currentStage;
       if (!["mentor", "advisor", "hod"].includes(currentStage)) {
@@ -158,7 +184,7 @@ router.patch(
       const stepField = `${currentStage}Approval`;
       activity[stepField].status = status;
       activity[stepField].approvedBy = req.user.id;
-      activity[stepField].remarks = remarks || "Approved by admin";
+      activity[stepField].remarks = sanitise(remarks || "Approved by admin").slice(0, 500);
       activity[stepField].date = new Date();
 
       if (status === "rejected") {
@@ -167,9 +193,10 @@ router.patch(
         const next = NEXT_STAGE[currentStage];
         activity.currentStage = next;
         if (next === "completed") {
+          const parsed = Number(pointsApproved);
           activity.pointsApproved =
-            pointsApproved !== undefined && pointsApproved !== ""
-              ? Number(pointsApproved)
+            pointsApproved !== undefined && pointsApproved !== "" && !isNaN(parsed) && parsed >= 0
+              ? parsed
               : activity.pointsClaimed;
           activity.verificationCode = generateVerificationCode();
         }
@@ -180,9 +207,35 @@ router.patch(
 
       res.json({ message: "Reviewed by admin", record });
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      console.error("[admin/approve]", err);
+      res.status(500).json({ message: "Failed to record review." });
     }
   }
 );
+
+// PATCH /api/admin/reset-password/:userId — admin directly sets a new password
+// for any user. This is the ONLY way a user's password can be reset now that
+// self-service (email-based) reset is disabled.
+router.patch("/reset-password/:userId", protect, allowRoles("admin"), async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters." });
+    }
+
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.resetToken = null;
+    user.resetTokenExpires = null;
+    await user.save();
+
+    res.json({ message: `Password reset for ${user.name}.` });
+  } catch (err) {
+    console.error("[admin/reset-password]", err);
+    res.status(500).json({ message: "Failed to reset password." });
+  }
+});
 
 module.exports = router;

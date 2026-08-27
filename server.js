@@ -1,11 +1,21 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const helmet = require("helmet");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
 
+// ── Startup safety check ────────────────────────────────────────────────────
+// Refuse to start if critical secrets are missing so we never accidentally
+// run with weak defaults in production.
+if (!process.env.JWT_SECRET) {
+  console.error("❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.");
+  process.exit(1);
+}
+
 const app = express();
+const { apiLimiter } = require("./middleware/rateLimiter");
 
 // Ensure uploads folder exists dynamically
 const uploadsDir = path.join(__dirname, "uploads");
@@ -13,10 +23,31 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ── Security headers (Helmet) ────────────────────────────────────────────────
+app.use(helmet());
+
+// ── CORS — locked to the configured frontend origin ──────────────────────────
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5173";
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow same-origin / server-to-server calls (no Origin header)
+      if (!origin) return callback(null, true);
+      if (origin === ALLOWED_ORIGIN) return callback(null, true);
+      callback(new Error(`CORS: origin '${origin}' is not allowed`));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
+// ── Body size cap — prevents DoS via giant JSON payloads ─────────────────────
+app.use(express.json({ limit: "50kb" }));
+app.use(express.urlencoded({ extended: true, limit: "50kb" }));
+
+// ── Broad API rate limiter (200 req / 15 min per IP) ─────────────────────────
+app.use("/api", apiLimiter);
 
 // Serve static uploaded files
 app.use("/uploads", express.static(uploadsDir));
@@ -41,6 +72,14 @@ if (fs.existsSync(path.join(__dirname, "routes", "reportRoutes.js"))) {
 // Health check endpoint
 app.get("/", (req, res) => {
   res.send("SAP Backend API is running smoothly!");
+});
+
+// ── Global error handler ──────────────────────────────────────────────────────
+// Catches any error passed via next(err). Never leaks stack traces to clients.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error("[Unhandled error]", err);
+  res.status(err.status || 500).json({ message: "An unexpected error occurred." });
 });
 
 // Start Server

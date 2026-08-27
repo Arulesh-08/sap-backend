@@ -8,6 +8,12 @@ const { POINT_STRUCTURE, getPoints } = require("../config/pointStructure");
 
 const router = express.Router();
 
+// Strip HTML tags + trim — prevents stored XSS in text fields
+function sanitise(str, maxLen = 200) {
+  if (typeof str !== "string") return "";
+  return str.replace(/<[^>]*>/g, "").trim().slice(0, maxLen);
+}
+
 // Mentor stage is disabled — new submissions start at "advisor" (schema default).
 // Kept here so any OLD activities still sitting at "mentor" from before this
 // change can still be advanced normally if a mentor account reviews them.
@@ -92,7 +98,7 @@ router.post(
         category,
         type: type || "",
         tier,
-        title: title || "",
+        title: sanitise(title || "").slice(0, 200),
         pointsClaimed: points,
         proofUrl,
         proofHash,
@@ -101,7 +107,8 @@ router.post(
 
       res.status(201).json({ message: "Activity submitted for mentor review", record });
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      console.error("[points/submit]", err);
+      res.status(500).json({ message: "Submission failed. Please try again." });
     }
   }
 );
@@ -111,7 +118,8 @@ router.get("/my-points", protect, allowRoles("student"), async (req, res) => {
     const record = await StudentPoints.findOne({ student: req.user.id });
     res.json(record || { activities: [], totalPointsApproved: 0 });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[points/my-points]", err);
+    res.status(500).json({ message: "Failed to fetch points." });
   }
 });
 
@@ -149,7 +157,8 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
 
     res.json(pending);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[points/pending]", err);
+    res.status(500).json({ message: "Failed to fetch pending items." });
   }
 });
 
@@ -189,7 +198,8 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
 
     res.json(all);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[points/all]", err);
+    res.status(500).json({ message: "Failed to fetch activities." });
   }
 });
 
@@ -213,7 +223,8 @@ router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod", "admin"
 
     res.json({ totalEntries, mentorApprovedCount, advisorApprovedCount, hodApprovedCount });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[points/analytics]", err);
+    res.status(500).json({ message: "Failed to fetch analytics." });
   }
 });
 
@@ -242,7 +253,7 @@ router.patch(
       const stepField = `${role}Approval`;
       activity[stepField].status = decision;
       activity[stepField].approvedBy = req.user.id;
-      activity[stepField].remarks = remarks || "";
+      activity[stepField].remarks = sanitise(remarks || "").slice(0, 500);
       activity[stepField].date = new Date();
 
       if (decision === "rejected") {
@@ -252,11 +263,10 @@ router.patch(
         activity.currentStage = next;
 
         if (next === "completed") {
-          // pointsClaimed was already server-computed at submit time — HOD keeps it
-          // unless explicitly overridden with a value from the approval form.
+          const parsed = Number(pointsApproved);
           activity.pointsApproved =
-            pointsApproved !== undefined && pointsApproved !== ""
-              ? Number(pointsApproved)
+            pointsApproved !== undefined && pointsApproved !== "" && !isNaN(parsed) && parsed >= 0
+              ? parsed
               : activity.pointsClaimed;
           activity.verificationCode = generateVerificationCode();
         }
@@ -267,7 +277,8 @@ router.patch(
 
       res.json({ message: "Review recorded", record });
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      console.error("[points/review]", err);
+      res.status(500).json({ message: "Failed to record review." });
     }
   }
 );
@@ -336,7 +347,8 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
 
     res.json({ categories: CATEGORIES, students: summary });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[points/student-summary]", err);
+    res.status(500).json({ message: "Failed to fetch student summary." });
   }
 });
 
@@ -381,7 +393,8 @@ router.patch(
 
       res.json({ message: "Verification revoked", record });
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      console.error("[points/revoke]", err);
+      res.status(500).json({ message: "Failed to revoke verification." });
     }
   }
 );
