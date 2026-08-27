@@ -30,7 +30,7 @@ router.get("/summary/advisor", protect, async (req, res) => {
       "Leadership", "Value-Added", "Project/Patent", "GATE/CAT",
     ];
 
-    const students = await User.find({ role: "student", isApproved: true })
+    const students = await User.find({ role: "student", isApproved: { $ne: false } })
       .select("name rollNumber department").sort({ rollNumber: 1 });
 
     const allRecords = await StudentPoints.find({}).populate("student", "_id");

@@ -7,7 +7,7 @@ const router = express.Router();
 const { protect, allowRoles } = require("../middleware/auth");
 const PointStructure = require("../models/PointStructure");
 const User = require("../models/User");
-const { refreshPointStructure } = require("../config/pointStructure");
+const { refreshPointStructure, getActiveStructure } = require("../config/pointStructure");
 
 // Memory storage — file never touches disk, goes straight to buffer
 const upload = multer({
@@ -211,6 +211,42 @@ router.get("/current", protect, allowRoles("admin"), async (req, res) => {
   } catch (err) {
     console.error("[sap-structure/current]", err);
     res.status(500).json({ message: "Failed to fetch current structure." });
+  }
+});
+
+// ── POST /api/admin/sap-structure/reset-to-default ───────────────────────────
+// Publishes the built-in KEC SAP structure (from config/pointStructure.js) to
+// the DB so it becomes the active structure without needing a file upload.
+router.post("/reset-to-default", protect, allowRoles("admin"), async (req, res) => {
+  try {
+    // Force a fresh load from the static source — bypasses any stale cache
+    const { STATIC_KEC_STRUCTURE } = require("../config/pointStructure");
+    const structure = STATIC_KEC_STRUCTURE;
+
+    await PointStructure.findOneAndUpdate(
+      {},
+      { structure, publishedBy: req.user.id, publishedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    await refreshPointStructure();
+
+    res.json({ message: "Built-in KEC SAP structure published successfully.", structure });
+  } catch (err) {
+    console.error("[sap-structure/reset-to-default]", err);
+    res.status(500).json({ message: "Failed to publish default structure." });
+  }
+});
+
+// ── DELETE /api/admin/sap-structure/custom ───────────────────────────────────
+// Removes any custom published structure — reverts to the static KEC default.
+router.delete("/custom", protect, allowRoles("admin"), async (req, res) => {
+  try {
+    await PointStructure.deleteMany({});
+    await refreshPointStructure();
+    res.json({ message: "Custom structure removed. System reverted to built-in KEC default." });
+  } catch (err) {
+    console.error("[sap-structure/delete-custom]", err);
+    res.status(500).json({ message: "Failed to remove custom structure." });
   }
 });
 

@@ -66,11 +66,13 @@ mongoose
   .then(() => console.log("✅ MongoDB connected successfully!"))
   .catch((err) => console.error("❌ MongoDB connection error:", err.message));
 
-// API Routes - Matched to your exact route file names
+// API Routes — more-specific paths MUST be mounted before broader ones.
+// e.g. /api/admin/sap-structure must come before /api/admin so Express
+// doesn't hand the request to the admin router and get a 404.
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/points", require("./routes/pointsRoutes"));
-app.use("/api/admin", require("./routes/admin"));
 app.use("/api/admin/sap-structure", require("./routes/sapStructureRoutes"));
+app.use("/api/admin", require("./routes/admin"));
 
 // Check if reportRoutes exists before mounting
 if (fs.existsSync(path.join(__dirname, "routes", "reportRoutes.js"))) {

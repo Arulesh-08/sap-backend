@@ -303,7 +303,7 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
 
     // Get all students ordered by roll number
     const students = await require("../models/User")
-      .find({ role: "student", isApproved: true })
+      .find({ role: "student", isApproved: { $ne: false } })
       .select("name rollNumber department")
       .sort({ rollNumber: 1 });
 

@@ -128,11 +128,14 @@ async function loadStructureFromDB() {
     const doc = await PointStructure.findOne({}).lean();
     if (doc && doc.structure && Object.keys(doc.structure).length > 0) {
       _cachedStructure = doc.structure;
+      console.log("[pointStructure] Loaded custom structure from DB (", Object.keys(doc.structure).length, "categories)");
     } else {
       _cachedStructure = null; // Use static fallback
+      console.log("[pointStructure] No custom structure in DB — using static default.");
     }
-  } catch {
+  } catch (err) {
     _cachedStructure = null; // DB unavailable — use static
+    console.error("[pointStructure] DB load failed, using static:", err.message);
   }
   _cacheLoaded = true;
 }
@@ -153,11 +156,12 @@ function getActiveStructure() {
 // Kept for backward compatibility — the categories endpoint uses this name.
 const POINT_STRUCTURE = new Proxy({}, {
   get(_, key) { return getActiveStructure()[key]; },
-  ownKeys() { return Object.keys(getActiveStructure()); },
+  ownKeys()    { return Reflect.ownKeys(getActiveStructure()); },
   getOwnPropertyDescriptor(_, key) {
-    return Object.getOwnPropertyDescriptor(getActiveStructure(), key) || { configurable: true };
+    return Object.getOwnPropertyDescriptor(getActiveStructure(), key) ||
+           { configurable: true, enumerable: true, writable: true };
   },
-  has(_, key) { return key in getActiveStructure(); },
+  has(_, key)  { return key in getActiveStructure(); },
 });
 
 // Looks up the exact point value for a category/type/tier combination.
@@ -177,4 +181,4 @@ async function getPoints(category, type, tier) {
 // Warm the cache at startup (non-blocking — failure is safe)
 loadStructureFromDB().catch(() => {});
 
-module.exports = { POINT_STRUCTURE, getPoints, refreshPointStructure, getActiveStructure };
+module.exports = { POINT_STRUCTURE, getPoints, refreshPointStructure, getActiveStructure, STATIC_KEC_STRUCTURE: STATIC_POINT_STRUCTURE };
