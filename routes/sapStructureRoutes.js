@@ -143,7 +143,7 @@ async function parseWord(buffer) {
 async function notifyAllUsers() {
   const users  = await User.find({}).select("email").lean();
   const emails = users.map((u) => u.email).filter(Boolean);
-  if (!emails.length) return 0;
+  if (!emails.length) return { sent: 0, skipped: 0, error: "No users found." };
   const html = `
     <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;">
       <h2 style="color:#1e40af;">SAP Point Structure Updated</h2>
@@ -156,8 +156,7 @@ async function notifyAllUsers() {
       </a>
       <p style="margin-top:24px;font-size:0.8rem;color:#64748b;">KEC Student Activity Points Portal</p>
     </div>`;
-  const { sent } = await sendEmail({ to: emails, subject: "KEC SAP Point Structure Updated", html });
-  return sent;
+  return await sendEmail({ to: emails, subject: "KEC SAP Point Structure Updated", html });
 }
 
 // ── Helper: save structure to DB + refresh cache ──────────────────────────────
@@ -217,11 +216,16 @@ router.post("/publish", protect, allowRoles("admin"), async (req, res) => {
 
     await saveStructure(structure, req.user.id);
 
-    let notifiedCount = 0;
-    try { notifiedCount = await notifyAllUsers(); }
-    catch (e) { console.error("[sap/publish] email:", e.message); }
+    let emailResult = { sent: 0, skipped: 0, error: null };
+    try { emailResult = await notifyAllUsers(); }
+    catch (e) { emailResult.error = e.message; console.error("[sap/publish] email:", e.message); }
 
-    res.json({ message: "SAP structure published successfully.", notifiedCount });
+    res.json({
+      message: "SAP structure published successfully.",
+      notifiedCount: emailResult.sent,
+      emailSkipped: emailResult.skipped,
+      emailError: emailResult.error,
+    });
   } catch (err) {
     console.error("[sap/publish]", err);
     res.status(500).json({ message: "Failed to publish structure." });
@@ -234,11 +238,17 @@ router.post("/reset-to-default", protect, allowRoles("admin"), async (req, res) 
   try {
     await saveStructure(STATIC_KEC_STRUCTURE, req.user.id);
 
-    let notifiedCount = 0;
-    try { notifiedCount = await notifyAllUsers(); }
-    catch (e) { console.error("[sap/reset] email:", e.message); }
+    let emailResult = { sent: 0, skipped: 0, error: null };
+    try { emailResult = await notifyAllUsers(); }
+    catch (e) { emailResult.error = e.message; console.error("[sap/reset] email:", e.message); }
 
-    res.json({ message: "Built-in KEC SAP structure published successfully.", notifiedCount, structure: STATIC_KEC_STRUCTURE });
+    res.json({
+      message: "Built-in KEC SAP structure published successfully.",
+      notifiedCount: emailResult.sent,
+      emailSkipped: emailResult.skipped,
+      emailError: emailResult.error,
+      structure: STATIC_KEC_STRUCTURE,
+    });
   } catch (err) {
     console.error("[sap/reset]", err);
     res.status(500).json({ message: "Failed to publish default structure." });
