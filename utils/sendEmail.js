@@ -39,41 +39,52 @@ async function sendEmail({ to, subject, html }) {
   let skipped = 0;
   const errors = [];
 
-  // Dispatch requests in parallel to send to all users efficiently
-  const sendPromises = allEmails.map(async (email) => {
-    try {
-      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          service_id: serviceId,
-          template_id: templateId,
-          user_id: publicKey,
-          accessToken: privateKey,
-          template_params: {
-            to_email: email,
-            subject: subject,
-            message_html: html
-          }
-        })
-      });
+  // Send in controlled batches of 5 at a time to prevent EmailJS from rate-limiting concurrent connections
+  const CHUNK_SIZE = 5;
+  for (let i = 0; i < allEmails.length; i += CHUNK_SIZE) {
+    const chunk = allEmails.slice(i, i + CHUNK_SIZE);
+    
+    const chunkPromises = chunk.map(async (email) => {
+      try {
+        const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            service_id: serviceId,
+            template_id: templateId,
+            user_id: publicKey,
+            accessToken: privateKey,
+            template_params: {
+              to_email: email,
+              subject: subject,
+              message_html: html
+            }
+          })
+        });
 
-      if (!response.ok) {
-        const text = await response.text();
-        errors.push(`Failed for ${email}: ${text || response.statusText}`);
+        if (!response.ok) {
+          const text = await response.text();
+          errors.push(`Failed for ${email}: ${text || response.statusText}`);
+          skipped++;
+        } else {
+          sent++;
+        }
+      } catch (err) {
+        errors.push(`Error for ${email}: ${err.message}`);
         skipped++;
-      } else {
-        sent++;
       }
-    } catch (err) {
-      errors.push(`Error for ${email}: ${err.message}`);
-      skipped++;
-    }
-  });
+    });
 
-  await Promise.all(sendPromises);
+    // Wait for the current batch of 5 to complete
+    await Promise.all(chunkPromises);
+
+    // Add a tiny 100ms delay between batches to be safe
+    if (i + CHUNK_SIZE < allEmails.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
 
   return {
     sent,
