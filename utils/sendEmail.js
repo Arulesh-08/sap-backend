@@ -1,11 +1,13 @@
 /**
  * utils/sendEmail.js
  *
- * Sends emails via Brevo Transactional Email REST API (HTTPS — works on Render free tier).
+ * Sends emails via EmailJS REST API (HTTPS — works on Render free tier).
  *
  * Set these environment variables:
- *   BREVO_API_KEY   = your Brevo API key
- *   EMAIL_USER      = sender email (registered/verified sender in Brevo)
+ *   EMAILJS_SERVICE_ID  = your EmailJS service ID (e.g. service_xxxxxxx)
+ *   EMAILJS_TEMPLATE_ID = your EmailJS template ID (e.g. template_xxxxxxx)
+ *   EMAILJS_PUBLIC_KEY  = your EmailJS public key (from Account settings)
+ *   EMAILJS_PRIVATE_KEY = your EmailJS REST API key / access token (from Account settings)
  */
 
 /**
@@ -17,65 +19,67 @@
  * @returns {{ sent: number, skipped: number, error: string|null }}
  */
 async function sendEmail({ to, subject, html }) {
-  const apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey) {
-    return { sent: 0, skipped: 0, error: "BREVO_API_KEY not set in environment." };
+  const serviceId = process.env.EMAILJS_SERVICE_ID;
+  const templateId = process.env.EMAILJS_TEMPLATE_ID;
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY;
+  const privateKey = process.env.EMAILJS_PRIVATE_KEY;
+
+  if (!serviceId || !templateId || !publicKey || !privateKey) {
+    return {
+      sent: 0,
+      skipped: 0,
+      error: "EmailJS environment variables (SERVICE_ID, TEMPLATE_ID, PUBLIC_KEY, PRIVATE_KEY) are not fully set in .env."
+    };
   }
 
-  const fromEmail = process.env.EMAIL_USER || "jvarulesh@gmail.com";
   const allEmails = (Array.isArray(to) ? to : [to]).filter(Boolean);
   if (!allEmails.length) return { sent: 0, skipped: 0, error: null };
 
-  // Brevo allows max 99 recipients (including TO, CC, BCC) per API call.
-  // We use BCC to protect user privacy (so users don't see each other's email addresses)
-  // and send in batches of 95 to stay safely within the limit.
-  const BATCH_SIZE = 95;
   let sent = 0;
   let skipped = 0;
   const errors = [];
 
-  for (let i = 0; i < allEmails.length; i += BATCH_SIZE) {
-    const chunk = allEmails.slice(i, i + BATCH_SIZE);
-    const bccRecipients = chunk.map(email => ({ email }));
-
+  // Dispatch requests in parallel to send to all users efficiently
+  const sendPromises = allEmails.map(async (email) => {
     try {
-      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
         method: "POST",
         headers: {
-          "accept": "application/json",
-          "api-key": apiKey,
-          "content-type": "application/json"
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          sender: { name: "KEC SAP Portal", email: fromEmail },
-          to: [{ email: fromEmail }], // Sent to self
-          bcc: bccRecipients,          // BCC all recipients in this batch
-          subject,
-          htmlContent: html
+          service_id: serviceId,
+          template_id: templateId,
+          user_id: publicKey,
+          accessToken: privateKey,
+          template_params: {
+            to_email: email,
+            subject: subject,
+            message_html: html
+          }
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        errors.push(`Batch ${i / BATCH_SIZE + 1} failed: ${data.message || response.statusText}`);
-        skipped += chunk.length;
+        const text = await response.text();
+        errors.push(`Failed for ${email}: ${text || response.statusText}`);
+        skipped++;
       } else {
-        sent += chunk.length;
+        sent++;
       }
-    } catch (error) {
-      console.error("[sendEmail] Error sending email batch via Brevo REST API:", error);
-      errors.push(`Batch ${i / BATCH_SIZE + 1} error: ${error.message}`);
-      skipped += chunk.length;
+    } catch (err) {
+      errors.push(`Error for ${email}: ${err.message}`);
+      skipped++;
     }
-  }
+  });
+
+  await Promise.all(sendPromises);
 
   return {
     sent,
     skipped,
-    error: errors.length ? errors.join("; ") : null
+    error: errors.length ? errors.slice(0, 5).join("; ") : null
   };
 }
 
 module.exports = { sendEmail };
-
