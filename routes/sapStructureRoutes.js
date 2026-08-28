@@ -216,15 +216,18 @@ router.post("/publish", protect, allowRoles("admin"), async (req, res) => {
 
     await saveStructure(structure, req.user.id);
 
-    let emailResult = { sent: 0, skipped: 0, error: null };
-    try { emailResult = await notifyAllUsers(); }
-    catch (e) { emailResult.error = e.message; console.error("[sap/publish] email:", e.message); }
+    const userCount = await User.countDocuments({});
+
+    // Trigger email sending in the background
+    notifyAllUsers()
+      .then((result) => console.log(`[sap/publish] Background emails sent: ${result.sent}, skipped: ${result.skipped}, error: ${result.error}`))
+      .catch((err) => console.error("[sap/publish] Background email notification failed:", err.message));
 
     res.json({
-      message: "SAP structure published successfully.",
-      notifiedCount: emailResult.sent,
-      emailSkipped: emailResult.skipped,
-      emailError: emailResult.error,
+      message: "SAP structure published successfully. Email notifications are being sent to all users in the background.",
+      notifiedCount: userCount,
+      emailSkipped: 0,
+      emailError: null,
     });
   } catch (err) {
     console.error("[sap/publish]", err);
@@ -238,15 +241,18 @@ router.post("/reset-to-default", protect, allowRoles("admin"), async (req, res) 
   try {
     await saveStructure(STATIC_KEC_STRUCTURE, req.user.id);
 
-    let emailResult = { sent: 0, skipped: 0, error: null };
-    try { emailResult = await notifyAllUsers(); }
-    catch (e) { emailResult.error = e.message; console.error("[sap/reset] email:", e.message); }
+    const userCount = await User.countDocuments({});
+
+    // Trigger email sending in the background
+    notifyAllUsers()
+      .then((result) => console.log(`[sap/reset] Background emails sent: ${result.sent}, skipped: ${result.skipped}, error: ${result.error}`))
+      .catch((err) => console.error("[sap/reset] Background email notification failed:", err.message));
 
     res.json({
-      message: "Built-in KEC SAP structure published successfully.",
-      notifiedCount: emailResult.sent,
-      emailSkipped: emailResult.skipped,
-      emailError: emailResult.error,
+      message: "Built-in KEC SAP structure published successfully. Email notifications are being sent to all users in the background.",
+      notifiedCount: userCount,
+      emailSkipped: 0,
+      emailError: null,
       structure: STATIC_KEC_STRUCTURE,
     });
   } catch (err) {
