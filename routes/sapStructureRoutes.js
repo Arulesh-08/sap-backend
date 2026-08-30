@@ -207,10 +207,10 @@ router.post("/extract", protect, allowRoles("admin"), upload.single("sapFile"), 
 });
 
 // POST /api/admin/sap-structure/publish
-// Save a mapped/reviewed structure to DB and notify users
+// Save a mapped/reviewed structure to DB and optionally notify users
 router.post("/publish", protect, allowRoles("admin"), async (req, res) => {
   try {
-    const { structure } = req.body;
+    const { structure, sendNotifications } = req.body;
     if (!structure || !Object.keys(structure).length)
       return res.status(400).json({ message: "Invalid structure payload." });
 
@@ -218,14 +218,19 @@ router.post("/publish", protect, allowRoles("admin"), async (req, res) => {
 
     const userCount = await User.countDocuments({});
 
-    // Trigger email sending in the background
-    notifyAllUsers()
-      .then((result) => console.log(`[sap/publish] Background emails sent: ${result.sent}, skipped: ${result.skipped}, error: ${result.error}`))
-      .catch((err) => console.error("[sap/publish] Background email notification failed:", err.message));
+    if (sendNotifications) {
+      // Trigger email sending in the background
+      notifyAllUsers()
+        .then((result) => console.log(`[sap/publish] Background emails sent: ${result.sent}, skipped: ${result.skipped}, error: ${result.error}`))
+        .catch((err) => console.error("[sap/publish] Background email notification failed:", err.message));
+    }
 
     res.json({
-      message: "SAP structure published successfully. Email notifications are being sent to all users in the background.",
-      notifiedCount: userCount,
+      message: sendNotifications
+        ? "SAP structure published successfully. Email notifications are being sent to all users in the background."
+        : "SAP structure published successfully.",
+      notifiedCount: sendNotifications ? userCount : 0,
+      notificationsSkipped: !sendNotifications,
       emailSkipped: 0,
       emailError: null,
     });
@@ -239,18 +244,24 @@ router.post("/publish", protect, allowRoles("admin"), async (req, res) => {
 // Publish the built-in KEC structure without uploading a file
 router.post("/reset-to-default", protect, allowRoles("admin"), async (req, res) => {
   try {
+    const { sendNotifications } = req.body;
     await saveStructure(STATIC_KEC_STRUCTURE, req.user.id);
 
     const userCount = await User.countDocuments({});
 
-    // Trigger email sending in the background
-    notifyAllUsers()
-      .then((result) => console.log(`[sap/reset] Background emails sent: ${result.sent}, skipped: ${result.skipped}, error: ${result.error}`))
-      .catch((err) => console.error("[sap/reset] Background email notification failed:", err.message));
+    if (sendNotifications) {
+      // Trigger email sending in the background
+      notifyAllUsers()
+        .then((result) => console.log(`[sap/reset] Background emails sent: ${result.sent}, skipped: ${result.skipped}, error: ${result.error}`))
+        .catch((err) => console.error("[sap/reset] Background email notification failed:", err.message));
+    }
 
     res.json({
-      message: "Built-in KEC SAP structure published successfully. Email notifications are being sent to all users in the background.",
-      notifiedCount: userCount,
+      message: sendNotifications
+        ? "Built-in KEC SAP structure published successfully. Email notifications are being sent to all users in the background."
+        : "Built-in KEC SAP structure published successfully.",
+      notifiedCount: sendNotifications ? userCount : 0,
+      notificationsSkipped: !sendNotifications,
       emailSkipped: 0,
       emailError: null,
       structure: STATIC_KEC_STRUCTURE,
