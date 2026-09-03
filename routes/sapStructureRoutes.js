@@ -27,7 +27,7 @@ function getGemini() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not set in .env");
   const genAI = new GoogleGenerativeAI(key);
-  return genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  return genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
