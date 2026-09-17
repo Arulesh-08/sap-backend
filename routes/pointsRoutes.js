@@ -5,6 +5,7 @@ const StudentPoints = require("../models/StudentPoints");
 const { protect, allowRoles } = require("../middleware/auth");
 const upload = require("../middleware/upload");
 const { getPoints, getActiveStructure } = require("../config/pointStructure");
+const { calculateSAPMark } = require("../utils/generateReport");
 
 const router = express.Router();
 
@@ -318,6 +319,7 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
       const record = recordByStudent[student._id.toString()];
       const categoryCounts = {};
       let total = 0;
+      let totalPoints = 0;
 
       CATEGORIES.forEach((cat) => { categoryCounts[cat] = 0; });
 
@@ -331,9 +333,13 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
           if (advisorPassed && CATEGORIES.includes(activity.category)) {
             categoryCounts[activity.category] += 1;
             total += 1;
+            const pts = (activity.currentStage === "completed" ? activity.pointsApproved : activity.pointsClaimed) || 0;
+            totalPoints += pts;
           }
         });
       }
+
+      const sapMark = calculateSAPMark(totalPoints);
 
       return {
         studentId: student._id,
@@ -342,6 +348,8 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
         department: student.department,
         categoryCounts,
         total,
+        totalPoints,
+        sapMark,
       };
     });
 

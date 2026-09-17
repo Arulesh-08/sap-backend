@@ -3,7 +3,7 @@ const path = require("path");
 const { protect } = require("../middleware/auth");
 const User = require("../models/User");
 const StudentPoints = require("../models/StudentPoints");
-const { generateSAPReport } = require("../utils/generateReport");
+const { generateSAPReport, calculateSAPMark } = require("../utils/generateReport");
 
 const router = express.Router();
 
@@ -55,15 +55,14 @@ router.get("/summary/advisor", protect, async (req, res) => {
       doc.fillColor("#fff").font("Helvetica-Bold").fontSize(15)
         .text("KONGU ENGINEERING COLLEGE — DEPARTMENT OF INFORMATION TECHNOLOGY", 30, 12, { width: pageWidth - 60 });
       doc.font("Helvetica").fontSize(10.5).fillColor("#d8e8e0")
-        .text("Class Advisor SAP Summary Sheet — Advisor-Approved Submission Counts", 30, 34, { width: pageWidth - 60 });
+        .text("Class Advisor SAP Summary Sheet — Advisor-Approved Submission Counts & Marks", 30, 34, { width: pageWidth - 60 });
 
       doc.fillColor("#222");
       let y = 75;
 
       // Column widths
-      const snW = 28, rollW = 65, nameW = 120;
-      const catW = Math.floor((pageWidth - 30 - snW - rollW - nameW - 40 - 30) / CATEGORIES.length);
-      const totalW = 40;
+      const snW = 28, rollW = 65, nameW = 120, totalW = 45, markW = 60;
+      const catW = Math.floor((pageWidth - 60 - snW - rollW - nameW - totalW - markW) / CATEGORIES.length);
 
       // Table header
       doc.font("Helvetica-Bold").fontSize(9);
@@ -82,7 +81,10 @@ router.get("/summary/advisor", protect, async (req, res) => {
       });
 
       doc.rect(x, y, totalW, 34).strokeColor("#888").stroke();
-      doc.text("Total", x + 2, y + 10, { width: totalW - 4, align: "center" });
+      doc.text("Total Pts", x + 2, y + 10, { width: totalW - 4, align: "center" }); x += totalW;
+
+      doc.rect(x, y, markW, 34).strokeColor("#888").stroke();
+      doc.text("Mark (/5)", x + 2, y + 10, { width: markW - 4, align: "center" });
       y += 34;
 
       // Rows
@@ -104,8 +106,9 @@ router.get("/summary/advisor", protect, async (req, res) => {
               activity.advisorApproval?.status === "approved" ||
               activity.currentStage === "completed";
             if (advisorPassed && CATEGORIES.includes(activity.category)) {
-              categoryPoints[activity.category] += activity.pointsClaimed || 0;
-              total += activity.pointsClaimed || 0;
+              const pts = (activity.currentStage === "completed" ? activity.pointsApproved : activity.pointsClaimed) || 0;
+              categoryPoints[activity.category] += pts;
+              total += pts;
             }
           });
         }
@@ -142,7 +145,12 @@ router.get("/summary/advisor", protect, async (req, res) => {
 
         doc.rect(x, y, totalW, rowH).strokeColor("#ccc").stroke();
         doc.font("Helvetica-Bold").fillColor(total > 0 ? "#1a3c34" : "#999")
-          .text(String(total), x + 2, y + 5, { width: totalW - 4, align: "center" });
+          .text(String(total), x + 2, y + 5, { width: totalW - 4, align: "center" }); x += totalW;
+
+        const mark = calculateSAPMark(total);
+        doc.rect(x, y, markW, rowH).strokeColor("#ccc").stroke();
+        doc.font("Helvetica-Bold").fillColor(mark > 0 ? "#1a7a4c" : "#999")
+          .text(`${mark} / 5`, x + 2, y + 5, { width: markW - 4, align: "center" });
         doc.font("Helvetica").fillColor("#222");
 
         y += rowH;
