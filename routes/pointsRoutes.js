@@ -136,6 +136,8 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
     const pending = [];
     records.forEach((record) => {
       if (!record.student) return;
+      const totalPointsApproved = record.totalPointsApproved || 0;
+      const sapMark = calculateSAPMark(totalPointsApproved);
       record.activities.forEach((activity) => {
         if (activity.currentStage === stage) {
           pending.push({
@@ -143,6 +145,8 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
             studentName: record.student.name,
             rollNumber: record.student.rollNumber,
             department: record.student.department,
+            totalPointsApproved,
+            sapMark,
             activityId: activity._id,
             category: activity.category,
             type: activity.type,
@@ -170,6 +174,8 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
     const all = [];
     records.forEach((record) => {
       if (!record.student) return;
+      const totalPointsApproved = record.totalPointsApproved || 0;
+      const sapMark = calculateSAPMark(totalPointsApproved);
       record.activities.forEach((activity) => {
         const remarks =
           activity.hodApproval?.remarks ||
@@ -182,6 +188,8 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
           studentName: record.student.name,
           rollNumber: record.student.rollNumber,
           department: record.student.department,
+          totalPointsApproved,
+          sapMark,
           activityId: activity._id,
           category: activity.category,
           type: activity.type,
