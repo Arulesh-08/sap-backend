@@ -33,7 +33,7 @@ function validatePassword(password) {
 // POST /api/auth/register
 router.post("/register", registerLimiter, async (req, res) => {
   try {
-    const { name, email, password, rollNumber, department } = req.body;
+    const { name, email, password, rollNumber, department, year, section, assignedClass } = req.body;
 
     // Validate required fields
     if (!name || !email || !password) {
@@ -47,6 +47,9 @@ router.post("/register", registerLimiter, async (req, res) => {
     const cleanName  = sanitise(name).slice(0, 120);
     const cleanRoll  = sanitise(rollNumber || "").slice(0, 20);
     const cleanDept  = sanitise(department || "").slice(0, 100);
+    const cleanYear  = Number(year) || 2;
+    const cleanSec   = sanitise(section || "A").toUpperCase().slice(0, 5);
+    const cleanAssigned = sanitise(assignedClass || "").slice(0, 20);
 
     // Public registration ONLY ever creates students — mentor/advisor/HOD
     // accounts must be created by the admin directly (see createStaff.js script)
@@ -65,11 +68,14 @@ router.post("/register", registerLimiter, async (req, res) => {
       role: finalRole,
       rollNumber: cleanRoll,
       department: cleanDept,
+      year: cleanYear,
+      section: cleanSec,
+      assignedClass: cleanAssigned,
     });
 
     res.status(201).json({
       message: "User registered successfully",
-      user: { id: user._id, name: user.name, role: user.role },
+      user: { id: user._id, name: user.name, role: user.role, year: user.year, section: user.section },
     });
   } catch (err) {
     console.error("[register]", err);
@@ -115,6 +121,9 @@ router.post("/login", loginLimiter, async (req, res) => {
         role,
         department: user.department,
         rollNumber: user.rollNumber,
+        year: user.year || 2,
+        section: user.section || "A",
+        assignedClass: user.assignedClass || "",
       },
     });
   } catch (err) {
@@ -189,6 +198,9 @@ router.get("/me", protect, async (req, res) => {
       role,
       department: user.department,
       rollNumber: user.rollNumber,
+      year: user.year || 2,
+      section: user.section || "A",
+      assignedClass: user.assignedClass || "",
     });
   } catch (err) {
     console.error("[me]", err);

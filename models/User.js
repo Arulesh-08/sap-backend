@@ -63,6 +63,10 @@ const userSchema = new mongoose.Schema(
       },
     },
     department: { type: String, required: true },
+    year: { type: Number, default: 2 }, // 1, 2, 3, 4 (Default: 2nd Year)
+    section: { type: String, default: "A" }, // "A", "B", "C"
+    assignedClass: { type: String, default: "" }, // e.g. "II-IT-A" for Class Advisors
+    advisor: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // Linked Class Advisor
     resetToken: { type: String, default: null },
     resetTokenExpires: { type: Date, default: null },
   },

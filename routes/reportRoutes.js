@@ -30,8 +30,12 @@ router.get("/summary/advisor", protect, async (req, res) => {
       "Leadership", "Value-Added", "Project/Patent", "GATE/CAT",
     ];
 
-    const students = await User.find({ role: "student", isApproved: { $ne: false } })
-      .select("name rollNumber department").sort({ rollNumber: 1 });
+    const filter = { role: "student", isApproved: { $ne: false } };
+    if (req.query.year) filter.year = Number(req.query.year);
+    if (req.query.section) filter.section = req.query.section.toUpperCase();
+
+    const students = await User.find(filter)
+      .select("name rollNumber department year section").sort({ rollNumber: 1 });
 
     const allRecords = await StudentPoints.find({}).populate("student", "_id");
     const recordByStudent = {};
@@ -50,12 +54,15 @@ router.get("/summary/advisor", protect, async (req, res) => {
 
       const pageWidth = doc.page.width;
 
+      const yearLabel = req.query.year ? `${req.query.year} Year` : "All Years";
+      const secLabel = req.query.section ? `Sec ${req.query.section.toUpperCase()}` : "All Sections";
+
       // Header
       doc.rect(0, 0, pageWidth, 60).fill("#1a3c34");
       doc.fillColor("#fff").font("Helvetica-Bold").fontSize(15)
         .text("KONGU ENGINEERING COLLEGE — DEPARTMENT OF INFORMATION TECHNOLOGY", 30, 12, { width: pageWidth - 60 });
       doc.font("Helvetica").fontSize(10.5).fillColor("#d8e8e0")
-        .text("Class Advisor SAP Summary Sheet — Advisor-Approved Submission Counts & Marks", 30, 34, { width: pageWidth - 60 });
+        .text(`Class Advisor SAP Summary Sheet — ${yearLabel} (${secLabel}) Submission Counts & Marks`, 30, 34, { width: pageWidth - 60 });
 
       doc.fillColor("#222");
       let y = 75;

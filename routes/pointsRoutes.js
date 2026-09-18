@@ -130,7 +130,7 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
 
     const records = await StudentPoints.find({ "activities.currentStage": stage }).populate(
       "student",
-      "name rollNumber department"
+      "name rollNumber department year section"
     );
 
     const pending = [];
@@ -145,6 +145,8 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
             studentName: record.student.name,
             rollNumber: record.student.rollNumber,
             department: record.student.department,
+            year: record.student.year || 2,
+            section: record.student.section || "A",
             totalPointsApproved,
             sapMark,
             activityId: activity._id,
@@ -169,7 +171,7 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
 
 router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
-    const records = await StudentPoints.find({}).populate("student", "name rollNumber department");
+    const records = await StudentPoints.find({}).populate("student", "name rollNumber department year section");
 
     const all = [];
     records.forEach((record) => {
@@ -188,6 +190,8 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
           studentName: record.student.name,
           rollNumber: record.student.rollNumber,
           department: record.student.department,
+          year: record.student.year || 2,
+          section: record.student.section || "A",
           totalPointsApproved,
           sapMark,
           activityId: activity._id,
@@ -310,10 +314,14 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
       "8. GATE/CAT/Govt. Exams",
     ];
 
-    // Get all students ordered by roll number
+    // Get all students ordered by roll number, optionally filtered by year and section
+    const filter = { role: "student", isApproved: { $ne: false } };
+    if (req.query.year) filter.year = Number(req.query.year);
+    if (req.query.section) filter.section = req.query.section.toUpperCase();
+
     const students = await require("../models/User")
-      .find({ role: "student", isApproved: { $ne: false } })
-      .select("name rollNumber department")
+      .find(filter)
+      .select("name rollNumber department year section")
       .sort({ rollNumber: 1 });
 
     // Get all point records in one query
@@ -354,6 +362,8 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
         name: student.name,
         rollNumber: student.rollNumber || "-",
         department: student.department,
+        year: student.year || 2,
+        section: student.section || "A",
         categoryCounts,
         total,
         totalPoints,
