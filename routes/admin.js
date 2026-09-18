@@ -37,7 +37,7 @@ router.get("/users", protect, allowRoles("admin"), async (req, res) => {
 // POST /api/admin/create-user — admin creates a student, mentor, advisor, or hod account directly
 router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
   try {
-    const { name, email, password, role, rollNumber, department } = req.body;
+    const { name, email, password, role, rollNumber, department, year, section, assignedClass } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "Name, email, and password are required." });
@@ -53,6 +53,9 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
     const cleanName  = sanitise(name).slice(0, 120);
     const cleanRoll  = sanitise(rollNumber || "").slice(0, 20);
     const cleanDept  = sanitise(department || "").slice(0, 100);
+    const cleanYear  = Number(year) || 2;
+    const cleanSec   = sanitise(section || "A").toUpperCase().slice(0, 5);
+    const cleanAssigned = sanitise(assignedClass || "").slice(0, 30);
 
     const existing = await User.findOne({ email: cleanEmail });
     if (existing) {
@@ -67,11 +70,14 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
       role,
       rollNumber: cleanRoll,
       department: cleanDept,
+      year: cleanYear,
+      section: cleanSec,
+      assignedClass: cleanAssigned,
     });
 
     res.status(201).json({
-      message: "User created",
-      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+      message: "User created successfully",
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, assignedClass: user.assignedClass },
     });
   } catch (err) {
     console.error("[admin/create-user]", err);
