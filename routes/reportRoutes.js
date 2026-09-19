@@ -30,9 +30,16 @@ router.get("/summary/advisor", protect, async (req, res) => {
       "Leadership", "Value-Added", "Project/Patent", "GATE/CAT",
     ];
 
+    let advisorUser = null;
+    if (req.user.role === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
+
     const filter = { role: "student", isApproved: { $ne: false } };
-    if (req.query.year) filter.year = Number(req.query.year);
-    if (req.query.section) filter.section = req.query.section.toUpperCase();
+    const queryYear = req.user.role === "advisor" && advisorUser ? advisorUser.year : (req.query.year ? Number(req.query.year) : undefined);
+    const querySec = req.user.role === "advisor" && advisorUser ? advisorUser.section : (req.query.section ? req.query.section.toUpperCase() : undefined);
+    if (queryYear) filter.year = queryYear;
+    if (querySec) filter.section = querySec;
 
     const students = await User.find(filter)
       .select("name rollNumber department year section").sort({ rollNumber: 1 });
@@ -54,8 +61,8 @@ router.get("/summary/advisor", protect, async (req, res) => {
 
       const pageWidth = doc.page.width;
 
-      const yearLabel = req.query.year ? `${req.query.year} Year` : "All Years";
-      const secLabel = req.query.section ? `Sec ${req.query.section.toUpperCase()}` : "All Sections";
+      const yearLabel = queryYear ? `${queryYear} Year` : "All Years";
+      const secLabel = querySec ? `Sec ${querySec}` : "All Sections";
 
       // Header
       doc.rect(0, 0, pageWidth, 60).fill("#1a3c34");

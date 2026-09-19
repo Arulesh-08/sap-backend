@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { v2: cloudinary } = require("cloudinary");
 const express = require("express");
+const User = require("../models/User");
 const StudentPoints = require("../models/StudentPoints");
 const { protect, allowRoles } = require("../middleware/auth");
 const upload = require("../middleware/upload");
@@ -13,6 +14,29 @@ const router = express.Router();
 function sanitise(str, maxLen = 200) {
   if (typeof str !== "string") return "";
   return str.replace(/<[^>]*>/g, "").trim().slice(0, maxLen);
+}
+
+// Helper: Checks whether an advisor user is authorized for a given student.
+// Matches by explicit student.advisor reference OR matching year and section.
+function isAdvisorForStudent(advisorUser, studentUser) {
+  if (!advisorUser || !studentUser) return false;
+  if (studentUser.advisor) {
+    const studentAdvisorId = studentUser.advisor._id
+      ? studentUser.advisor._id.toString()
+      : studentUser.advisor.toString();
+    if (studentAdvisorId === advisorUser._id.toString()) {
+      return true;
+    }
+  }
+  if (
+    advisorUser.year &&
+    advisorUser.section &&
+    Number(studentUser.year) === Number(advisorUser.year) &&
+    String(studentUser.section || "").trim().toUpperCase() === String(advisorUser.section || "").trim().toUpperCase()
+  ) {
+    return true;
+  }
+  return false;
 }
 
 // Mentor stage is disabled — new submissions start at "advisor" (schema default).
@@ -127,6 +151,10 @@ router.get("/my-points", protect, allowRoles("student"), async (req, res) => {
 router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
     const stage = req.user.role;
+    let advisorUser = null;
+    if (stage === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
 
     const records = await StudentPoints.find({ "activities.currentStage": stage }).populate(
       "student",
@@ -139,8 +167,20 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
     const pending = [];
     records.forEach((record) => {
       if (!record.student) return;
+
+      // Class Advisors can only see pending submissions for students in their assigned class
+      if (stage === "advisor" && advisorUser) {
+        if (!isAdvisorForStudent(advisorUser, record.student)) {
+          return;
+        }
+      }
+
       const totalPointsApproved = record.totalPointsApproved || 0;
       const sapMark = calculateSAPMark(totalPointsApproved);
+      const advisorId = record.student.advisor?._id
+        ? record.student.advisor._id.toString()
+        : (record.student.advisor ? record.student.advisor.toString() : "");
+
       record.activities.forEach((activity) => {
         if (activity.currentStage === stage) {
           pending.push({
@@ -151,6 +191,9 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
             year: record.student.year || 2,
             section: record.student.section || "A",
             advisorName: record.student.advisor?.name || "",
+            advisorId,
+            isMyClass: true,
+            canApprove: true,
             totalPointsApproved,
             sapMark,
             activityId: activity._id,
@@ -175,6 +218,11 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
 
 router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
+    let advisorUser = null;
+    if (req.user.role === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
+
     const records = await StudentPoints.find({}).populate({
       path: "student",
       select: "name rollNumber department year section advisor",
@@ -186,6 +234,13 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
       if (!record.student) return;
       const totalPointsApproved = record.totalPointsApproved || 0;
       const sapMark = calculateSAPMark(totalPointsApproved);
+      const advisorId = record.student.advisor?._id
+        ? record.student.advisor._id.toString()
+        : (record.student.advisor ? record.student.advisor.toString() : "");
+
+      const isMyClass = advisorUser ? isAdvisorForStudent(advisorUser, record.student) : true;
+      const canApprove = req.user.role === "admin" || req.user.role === "hod" || (req.user.role === "advisor" && isMyClass);
+
       record.activities.forEach((activity) => {
         const remarks =
           activity.hodApproval?.remarks ||
@@ -201,6 +256,9 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
           year: record.student.year || 2,
           section: record.student.section || "A",
           advisorName: record.student.advisor?.name || "",
+          advisorId,
+          isMyClass,
+          canApprove,
           totalPointsApproved,
           sapMark,
           activityId: activity._id,
@@ -227,7 +285,15 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
 
 router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
-    const records = await StudentPoints.find({});
+    let advisorUser = null;
+    if (req.user.role === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
+
+    const records = await StudentPoints.find({}).populate({
+      path: "student",
+      select: "name rollNumber department year section advisor",
+    });
 
     let totalEntries = 0;
     let mentorApprovedCount = 0;
@@ -235,6 +301,10 @@ router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod", "admin"
     let hodApprovedCount = 0;
 
     records.forEach((record) => {
+      if (!record.student) return;
+      if (advisorUser && !isAdvisorForStudent(advisorUser, record.student)) {
+        return;
+      }
       record.activities.forEach((activity) => {
         totalEntries += 1;
         if (activity.mentorApproval?.status === "approved") mentorApprovedCount += 1;
@@ -260,16 +330,31 @@ router.patch(
       const decision = status;
       const role = req.user.role;
 
-      const record = await StudentPoints.findOne({ student: req.params.studentId });
+      const record = await StudentPoints.findOne({ student: req.params.studentId }).populate({
+        path: "student",
+        select: "name rollNumber department year section advisor",
+      });
       if (!record) return res.status(404).json({ message: "Record not found" });
+      if (!record.student) return res.status(404).json({ message: "Student record not found" });
 
       const activity = record.activities.id(req.params.activityId);
       if (!activity) return res.status(404).json({ message: "Activity not found" });
 
-      if (activity.currentStage !== role) {
+      if (activity.currentStage !== role && role !== "admin") {
         return res.status(403).json({
           message: `This activity is not at the ${role} stage (currently: ${activity.currentStage})`,
         });
+      }
+
+      // Class Advisors can ONLY review (approve/reject) submissions for their assigned class
+      if (role === "advisor") {
+        const advisorUser = await User.findById(req.user.id);
+        if (!advisorUser || !isAdvisorForStudent(advisorUser, record.student)) {
+          const studentClass = `${record.student.year ? `${record.student.year} Year` : ""} Section ${record.student.section || "A"}`;
+          return res.status(403).json({
+            message: `Access denied. As Class Advisor, you can only review submissions for your assigned class, not for ${studentClass}.`,
+          });
+        }
       }
 
       const stepField = `${role}Approval`;
@@ -402,8 +487,12 @@ router.patch(
     try {
       const { remarks } = req.body;
 
-      const record = await StudentPoints.findOne({ student: req.params.studentId });
+      const record = await StudentPoints.findOne({ student: req.params.studentId }).populate({
+        path: "student",
+        select: "name rollNumber department year section advisor",
+      });
       if (!record) return res.status(404).json({ message: "Record not found" });
+      if (!record.student) return res.status(404).json({ message: "Student not found" });
 
       const activity = record.activities.id(req.params.activityId);
       if (!activity) return res.status(404).json({ message: "Activity not found" });
@@ -412,6 +501,16 @@ router.patch(
         return res.status(400).json({
           message: "Only fully verified activities can be revoked.",
         });
+      }
+
+      // Class Advisors can ONLY revoke submissions for their own assigned class
+      if (req.user.role === "advisor") {
+        const advisorUser = await User.findById(req.user.id);
+        if (!advisorUser || !isAdvisorForStudent(advisorUser, record.student)) {
+          return res.status(403).json({
+            message: "Access denied. Class Advisors can only revoke submissions for their own class.",
+          });
+        }
       }
 
       activity.currentStage = "rejected";
