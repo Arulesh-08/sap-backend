@@ -60,6 +60,13 @@ router.post("/register", registerLimiter, async (req, res) => {
       return res.status(400).json({ message: "Email already registered." });
     }
 
+    // Auto-link advisor for student if matching advisor exists for their year and section
+    let advisorId = null;
+    if (finalRole === "student") {
+      const matchedAdvisor = await User.findOne({ role: "advisor", year: cleanYear, section: cleanSec });
+      if (matchedAdvisor) advisorId = matchedAdvisor._id;
+    }
+
     const hashedPassword = await bcrypt.hash(password, 12);
     const user = await User.create({
       name: cleanName,
@@ -71,6 +78,7 @@ router.post("/register", registerLimiter, async (req, res) => {
       year: cleanYear,
       section: cleanSec,
       assignedClass: cleanAssigned,
+      advisor: advisorId,
     });
 
     res.status(201).json({

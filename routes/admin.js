@@ -22,11 +22,18 @@ function generateVerificationCode() {
   return `KEC-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 }
 
-// GET /api/admin/users — list every account, optionally filtered by role
+// GET /api/admin/users — list every account, optionally filtered by role, year, and section
 router.get("/users", protect, allowRoles("admin"), async (req, res) => {
   try {
-    const filter = req.query.role ? { role: req.query.role } : {};
-    const users = await User.find(filter).select("-password").sort({ createdAt: -1 });
+    const filter = {};
+    if (req.query.role) filter.role = req.query.role;
+    if (req.query.year) filter.year = Number(req.query.year);
+    if (req.query.section) filter.section = req.query.section.toUpperCase();
+
+    const users = await User.find(filter)
+      .select("-password")
+      .populate("advisor", "name email assignedClass")
+      .sort({ role: 1, rollNumber: 1, createdAt: -1 });
     res.json(users);
   } catch (err) {
     console.error("[admin/users]", err);
@@ -62,6 +69,13 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
       return res.status(400).json({ message: "A user with this email already exists." });
     }
 
+    // Auto-link advisor for student if matching advisor exists
+    let advisorId = null;
+    if (role === "student") {
+      const matchedAdvisor = await User.findOne({ role: "advisor", year: cleanYear, section: cleanSec });
+      if (matchedAdvisor) advisorId = matchedAdvisor._id;
+    }
+
     const hashedPassword = await bcrypt.hash(password, 12);
     const user = await User.create({
       name: cleanName,
@@ -73,6 +87,8 @@ router.post("/create-user", protect, allowRoles("admin"), async (req, res) => {
       year: cleanYear,
       section: cleanSec,
       assignedClass: cleanAssigned,
+      advisor: advisorId,
+      isApproved: true,
     });
 
     res.status(201).json({
@@ -126,20 +142,30 @@ router.delete("/user/:userId", protect, allowRoles("admin"), async (req, res) =>
   }
 });
 
-// GET /api/admin/all-activities — every submission across every student, any stage
+// GET /api/admin/all-activities — every submission across every student, any stage, optionally filtered by year/section
 router.get("/all-activities", protect, allowRoles("admin"), async (req, res) => {
   try {
-    const records = await StudentPoints.find({}).populate("student", "name rollNumber department");
+    const records = await StudentPoints.find({}).populate(
+      "student",
+      "name rollNumber department year section advisor"
+    );
 
     const all = [];
     records.forEach((record) => {
       if (!record.student) return;
+      if (req.query.year && String(record.student.year || 2) !== String(req.query.year)) return;
+      if (req.query.section && (record.student.section || "A").toUpperCase() !== req.query.section.toUpperCase()) return;
+
+      const totalPointsApproved = record.totalPointsApproved || 0;
       record.activities.forEach((activity) => {
         all.push({
           studentId: record.student._id,
           studentName: record.student.name,
           rollNumber: record.student.rollNumber,
           department: record.student.department,
+          year: record.student.year || 2,
+          section: record.student.section || "A",
+          totalPointsApproved,
           activityId: activity._id,
           category: activity.category,
           type: activity.type,

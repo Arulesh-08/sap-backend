@@ -130,8 +130,11 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
 
     const records = await StudentPoints.find({ "activities.currentStage": stage }).populate(
       "student",
-      "name rollNumber department year section"
-    );
+      "name rollNumber department year section advisor"
+    ).populate({
+      path: "student",
+      populate: { path: "advisor", select: "name email assignedClass" }
+    });
 
     const pending = [];
     records.forEach((record) => {
@@ -147,6 +150,7 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
             department: record.student.department,
             year: record.student.year || 2,
             section: record.student.section || "A",
+            advisorName: record.student.advisor?.name || "",
             totalPointsApproved,
             sapMark,
             activityId: activity._id,
@@ -171,7 +175,11 @@ router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"),
 
 router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
   try {
-    const records = await StudentPoints.find({}).populate("student", "name rollNumber department year section");
+    const records = await StudentPoints.find({}).populate({
+      path: "student",
+      select: "name rollNumber department year section advisor",
+      populate: { path: "advisor", select: "name email assignedClass" }
+    });
 
     const all = [];
     records.forEach((record) => {
@@ -192,6 +200,7 @@ router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), asy
           department: record.student.department,
           year: record.student.year || 2,
           section: record.student.section || "A",
+          advisorName: record.student.advisor?.name || "",
           totalPointsApproved,
           sapMark,
           activityId: activity._id,
@@ -321,7 +330,8 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
 
     const students = await require("../models/User")
       .find(filter)
-      .select("name rollNumber department year section")
+      .select("name email rollNumber department year section advisor")
+      .populate("advisor", "name email assignedClass")
       .sort({ rollNumber: 1 });
 
     // Get all point records in one query
@@ -360,10 +370,12 @@ router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "
       return {
         studentId: student._id,
         name: student.name,
+        email: student.email,
         rollNumber: student.rollNumber || "-",
         department: student.department,
         year: student.year || 2,
         section: student.section || "A",
+        advisor: student.advisor ? { name: student.advisor.name, email: student.advisor.email, assignedClass: student.advisor.assignedClass } : null,
         categoryCounts,
         total,
         totalPoints,
