@@ -1,0 +1,78 @@
+const mongoose = require("mongoose");
+
+const AUTHORIZED_ADMIN_EMAIL = process.env.AUTHORIZED_ADMIN_EMAIL || "";
+
+const userSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      validate: {
+        validator: function (email) {
+          if (email.toLowerCase() === AUTHORIZED_ADMIN_EMAIL.toLowerCase()) {
+            return true; // designated admin email is exempt from domain restriction
+          }
+          if (this.role === "student") {
+            return email.endsWith("@kongu.edu");
+          } else {
+            // faculty, mentor, advisor, hod, admin must end with @kongu.ac.in
+            return email.endsWith("@kongu.ac.in");
+          }
+        },
+        message: (props) =>
+          props.value.endsWith("@kongu.edu")
+            ? "Faculty/Staff roles must use a @kongu.ac.in email address."
+            : "Students must use a @kongu.edu email address.",
+      },
+    },
+    password: { type: String, required: true },
+    role: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ["student", "mentor", "advisor", "hod", "admin"],
+      required: true,
+      validate: {
+        validator: function (value) {
+          if (value === "admin") {
+            return (
+              this.email &&
+              this.email.toLowerCase() === AUTHORIZED_ADMIN_EMAIL.toLowerCase()
+            );
+          }
+          return true;
+        },
+        message: "Unauthorized: Only the designated email address can have Admin access.",
+      },
+    },
+    isApproved: {
+      type: Boolean,
+      default: function () {
+        // Students & Admins auto-approved; Faculty require Admin approval
+        return this.role === "student" || this.role === "admin";
+      },
+    },
+    rollNumber: {
+      type: String,
+      required: function () {
+        return this.role && this.role.toLowerCase() === "student";
+      },
+    },
+    department: { type: String, required: true },
+    year: { type: Number, default: 2 }, // 1, 2, 3, 4 (Default: 2nd Year)
+    semester: { type: Number, default: 3 }, // 1, 2, 3, 4, 5, 6, 7, 8
+    academicYear: { type: String, default: "2024-2025" },
+    section: { type: String, default: "A" }, // "A", "B", "C"
+    assignedClass: { type: String, default: "" }, // e.g. "II-IT-A" for Class Advisors
+    advisor: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // Linked Class Advisor
+    resetToken: { type: String, default: null },
+    resetTokenExpires: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model("User", userSchema);

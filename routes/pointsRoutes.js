@@ -1,0 +1,622 @@
+const crypto = require("crypto");
+const { v2: cloudinary } = require("cloudinary");
+const express = require("express");
+const User = require("../models/User");
+const StudentPoints = require("../models/StudentPoints");
+const { protect, allowRoles } = require("../middleware/auth");
+const upload = require("../middleware/upload");
+const { getPoints, getActiveStructure } = require("../config/pointStructure");
+const { calculateSAPMark } = require("../utils/generateReport");
+
+const router = express.Router();
+
+// Strip HTML tags + trim — prevents stored XSS in text fields
+function sanitise(str, maxLen = 200) {
+  if (typeof str !== "string") return "";
+  return str.replace(/<[^>]*>/g, "").trim().slice(0, maxLen);
+}
+
+// Helper: Checks whether an advisor user is authorized for a given student.
+// Matches by explicit student.advisor reference OR matching year and section.
+function isAdvisorForStudent(advisorUser, studentUser) {
+  if (!advisorUser || !studentUser) return false;
+  if (studentUser.advisor) {
+    const studentAdvisorId = studentUser.advisor._id
+      ? studentUser.advisor._id.toString()
+      : studentUser.advisor.toString();
+    if (studentAdvisorId === advisorUser._id.toString()) {
+      return true;
+    }
+  }
+  if (
+    advisorUser.year &&
+    advisorUser.section &&
+    Number(studentUser.year) === Number(advisorUser.year) &&
+    String(studentUser.section || "").trim().toUpperCase() === String(advisorUser.section || "").trim().toUpperCase()
+  ) {
+    return true;
+  }
+  return false;
+}
+
+// Mentor stage is disabled — new submissions start at "advisor" (schema default).
+// Kept here so any OLD activities still sitting at "mentor" from before this
+// change can still be advanced normally if a mentor account reviews them.
+const NEXT_STAGE = {
+  mentor: "advisor",
+  advisor: "hod",
+  hod: "completed",
+};
+
+function generateVerificationCode() {
+  return `KEC-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
+// GET /api/points/categories — the full nested category/type/tier point structure,
+// straight from the official doc. The dropdown UI is built entirely from this.
+router.get("/categories", protect, (req, res) => {
+  res.json(getActiveStructure());
+});
+
+// Student submits a new activity for points, with a certificate file attached.
+// Points are NEVER taken from the client — always looked up server-side from
+// category+type+tier, so a tampered request can't claim points it isn't entitled to.
+// POST /api/points/submit  (multipart/form-data, field name: "certificate")
+function handleUpload(req, res, next) {
+  upload.single("certificate")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ message: "Certificate file must be 70KB or smaller." });
+      }
+      return res.status(400).json({ message: err.message || "File upload failed." });
+    }
+    next();
+  });
+}
+
+router.post(
+  "/submit",
+  protect,
+  allowRoles("student"),
+  handleUpload,
+  async (req, res) => {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const {
+        category,
+        type,
+        tier,
+        title,
+        eventDate,
+        collegeName,
+        insideOrOutside,
+        isNational,
+        hasCashPrize,
+        cashPrizeAmount,
+        participationStatus,
+        semester,
+        academicYear,
+        studentYear,
+      } = req.body;
+
+      if (!req.file) {
+        return res.status(400).json({ message: "A certificate file is required to submit an activity." });
+      }
+
+      // Handle both Cloudinary secure_url and local disk storage uploads
+      let proofUrl = req.file.path;
+      if (!proofUrl.startsWith("http://") && !proofUrl.startsWith("https://")) {
+        proofUrl = `/uploads/${req.file.filename}`;
+      }
+
+      const points = await getPoints(category, type, tier);
+      if (points === null) {
+        return res.status(400).json({ message: "Invalid category/type/tier combination" });
+      }
+
+      let record = await StudentPoints.findOne({ student: req.user.id });
+      if (!record) {
+        record = await StudentPoints.create({ student: req.user.id, activities: [] });
+      }
+
+      // Hash certificate content whether from Cloudinary or local disk
+      let proofHash;
+      if (req.file) {
+        let fileBuffer;
+        if (req.file.path.startsWith("http://") || req.file.path.startsWith("https://")) {
+          const response = await fetch(req.file.path);
+          fileBuffer = Buffer.from(await response.arrayBuffer());
+        } else {
+          fileBuffer = fs.readFileSync(req.file.path);
+        }
+        proofHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+
+        const duplicate = record.activities.find((a) => a.proofHash === proofHash);
+        if (duplicate) {
+          if (req.file.path.startsWith("http://") || req.file.path.startsWith("https://")) {
+            await cloudinary.uploader.destroy(req.file.filename, {
+              resource_type: req.file.mimetype?.startsWith("video/")
+                ? "video"
+                : req.file.mimetype === "application/pdf"
+                ? "raw"
+                : "image",
+            }).catch(() => {});
+          } else if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+          return res.status(400).json({
+            message: "This certificate has already been submitted for a previous activity.",
+          });
+        }
+      }
+
+      const parsedEventDate = eventDate ? new Date(eventDate) : new Date();
+      const cleanCollegeName = sanitise(collegeName || "Kongu Engineering College").slice(0, 200);
+      const cleanInsideOutside = ["Inside KEC", "Outside KEC"].includes(insideOrOutside)
+        ? insideOrOutside
+        : tier === "Inside"
+        ? "Inside KEC"
+        : "Outside KEC";
+      const parsedIsNational =
+        String(isNational) === "true" || isNational === true || isNational === "yes";
+      const parsedHasCashPrize =
+        String(hasCashPrize) === "true" || hasCashPrize === true || hasCashPrize === "yes";
+      const parsedCashAmount = parsedHasCashPrize ? Number(cashPrizeAmount) || 0 : 0;
+      const cleanParticipation = ["Winner", "Runner", "Participant"].includes(participationStatus)
+        ? participationStatus
+        : type && type.toLowerCase().includes("prize")
+        ? "Winner"
+        : "Participant";
+      const cleanSemester = Number(semester) || Number(req.user.semester) || 1;
+      const cleanYear = Number(studentYear) || Number(req.user.year) || 1;
+      const cleanAcademicYear = sanitise(academicYear || req.user.academicYear || "2024-2025");
+
+      record.activities.push({
+        category,
+        type: type || "",
+        tier,
+        title: sanitise(title || "").slice(0, 200),
+        eventDate: parsedEventDate,
+        collegeName: cleanCollegeName,
+        insideOrOutside: cleanInsideOutside,
+        isNational: parsedIsNational,
+        hasCashPrize: parsedHasCashPrize,
+        cashPrizeAmount: parsedCashAmount,
+        participationStatus: cleanParticipation,
+        semester: cleanSemester,
+        studentYear: cleanYear,
+        academicYear: cleanAcademicYear,
+        pointsClaimed: points,
+        proofUrl,
+        proofHash,
+      });
+      await record.save({ validateModifiedOnly: true });
+
+      res.status(201).json({ message: "Activity submitted for advisor review", record });
+    } catch (err) {
+      console.error("[points/submit]", err);
+      res.status(500).json({ message: "Submission failed. Please try again." });
+    }
+  }
+);
+
+router.get("/my-points", protect, allowRoles("student"), async (req, res) => {
+  try {
+    const record = await StudentPoints.findOne({ student: req.user.id });
+    res.json(record || { activities: [], totalPointsApproved: 0 });
+  } catch (err) {
+    console.error("[points/my-points]", err);
+    res.status(500).json({ message: "Failed to fetch points." });
+  }
+});
+
+router.get("/pending", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
+  try {
+    const stage = req.user.role;
+    let advisorUser = null;
+    if (stage === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
+
+    const records = await StudentPoints.find({ "activities.currentStage": stage }).populate(
+      "student",
+      "name rollNumber department year section advisor"
+    ).populate({
+      path: "student",
+      populate: { path: "advisor", select: "name email assignedClass" }
+    });
+
+    const pending = [];
+    records.forEach((record) => {
+      if (!record.student) return;
+
+      // Class Advisors can only see pending submissions for students in their assigned class
+      if (stage === "advisor" && advisorUser) {
+        if (!isAdvisorForStudent(advisorUser, record.student)) {
+          return;
+        }
+      }
+
+      const totalPointsApproved = record.totalPointsApproved || 0;
+      const sapMark = calculateSAPMark(totalPointsApproved);
+      const advisorId = record.student.advisor?._id
+        ? record.student.advisor._id.toString()
+        : (record.student.advisor ? record.student.advisor.toString() : "");
+
+      record.activities.forEach((activity) => {
+        if (activity.currentStage === stage) {
+          pending.push({
+            studentId: record.student._id,
+            studentName: record.student.name,
+            rollNumber: record.student.rollNumber,
+            department: record.student.department,
+            year: record.student.year || 2,
+            section: record.student.section || "A",
+            advisorName: record.student.advisor?.name || "",
+            advisorId,
+            isMyClass: true,
+            canApprove: true,
+            totalPointsApproved,
+            sapMark,
+            activityId: activity._id,
+            category: activity.category,
+            type: activity.type,
+            tier: activity.tier,
+            title: activity.title,
+            eventDate: activity.eventDate,
+            collegeName: activity.collegeName || "Kongu Engineering College",
+            insideOrOutside: activity.insideOrOutside || "Inside KEC",
+            isNational: activity.isNational || false,
+            hasCashPrize: activity.hasCashPrize || false,
+            cashPrizeAmount: activity.cashPrizeAmount || 0,
+            participationStatus: activity.participationStatus || "Participant",
+            semester: activity.semester || 1,
+            studentYear: activity.studentYear || record.student.year || 1,
+            academicYear: activity.academicYear || "2024-2025",
+            pointsClaimed: activity.pointsClaimed,
+            proofUrl: activity.proofUrl,
+            currentStage: activity.currentStage,
+          });
+        }
+      });
+    });
+
+    res.json(pending);
+  } catch (err) {
+    console.error("[points/pending]", err);
+    res.status(500).json({ message: "Failed to fetch pending items." });
+  }
+});
+
+router.get("/all", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
+  try {
+    let advisorUser = null;
+    if (req.user.role === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
+
+    const records = await StudentPoints.find({}).populate({
+      path: "student",
+      select: "name rollNumber department year section advisor",
+      populate: { path: "advisor", select: "name email assignedClass" }
+    });
+
+    const all = [];
+    records.forEach((record) => {
+      if (!record.student) return;
+      const totalPointsApproved = record.totalPointsApproved || 0;
+      const sapMark = calculateSAPMark(totalPointsApproved);
+      const advisorId = record.student.advisor?._id
+        ? record.student.advisor._id.toString()
+        : (record.student.advisor ? record.student.advisor.toString() : "");
+
+      const isMyClass = advisorUser ? isAdvisorForStudent(advisorUser, record.student) : true;
+      const canApprove = req.user.role === "admin" || req.user.role === "hod" || (req.user.role === "advisor" && isMyClass);
+
+      record.activities.forEach((activity) => {
+        const remarks =
+          activity.hodApproval?.remarks ||
+          activity.advisorApproval?.remarks ||
+          activity.mentorApproval?.remarks ||
+          "";
+
+        all.push({
+          studentId: record.student._id,
+          studentName: record.student.name,
+          rollNumber: record.student.rollNumber,
+          department: record.student.department,
+          year: record.student.year || 2,
+          section: record.student.section || "A",
+          advisorName: record.student.advisor?.name || "",
+          advisorId,
+          isMyClass,
+          canApprove,
+          totalPointsApproved,
+          sapMark,
+          activityId: activity._id,
+          category: activity.category,
+          type: activity.type,
+          tier: activity.tier,
+          title: activity.title,
+          eventDate: activity.eventDate,
+          collegeName: activity.collegeName || "Kongu Engineering College",
+          insideOrOutside: activity.insideOrOutside || "Inside KEC",
+          isNational: activity.isNational || false,
+          hasCashPrize: activity.hasCashPrize || false,
+          cashPrizeAmount: activity.cashPrizeAmount || 0,
+          participationStatus: activity.participationStatus || "Participant",
+          semester: activity.semester || 1,
+          studentYear: activity.studentYear || record.student.year || 1,
+          academicYear: activity.academicYear || "2024-2025",
+          pointsClaimed: activity.pointsClaimed,
+          pointsApproved: activity.pointsApproved,
+          proofUrl: activity.proofUrl,
+          currentStage: activity.currentStage,
+          verificationCode: activity.verificationCode,
+          remarks,
+        });
+      });
+    });
+
+    res.json(all);
+  } catch (err) {
+    console.error("[points/all]", err);
+    res.status(500).json({ message: "Failed to fetch activities." });
+  }
+});
+
+router.get("/analytics", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
+  try {
+    let advisorUser = null;
+    if (req.user.role === "advisor") {
+      advisorUser = await User.findById(req.user.id);
+    }
+
+    const records = await StudentPoints.find({}).populate({
+      path: "student",
+      select: "name rollNumber department year section advisor",
+    });
+
+    let totalEntries = 0;
+    let mentorApprovedCount = 0;
+    let advisorApprovedCount = 0;
+    let hodApprovedCount = 0;
+
+    records.forEach((record) => {
+      if (!record.student) return;
+      if (advisorUser && !isAdvisorForStudent(advisorUser, record.student)) {
+        return;
+      }
+      record.activities.forEach((activity) => {
+        totalEntries += 1;
+        if (activity.mentorApproval?.status === "approved") mentorApprovedCount += 1;
+        if (activity.advisorApproval?.status === "approved") advisorApprovedCount += 1;
+        if (activity.hodApproval?.status === "approved") hodApprovedCount += 1;
+      });
+    });
+
+    res.json({ totalEntries, mentorApprovedCount, advisorApprovedCount, hodApprovedCount });
+  } catch (err) {
+    console.error("[points/analytics]", err);
+    res.status(500).json({ message: "Failed to fetch analytics." });
+  }
+});
+
+router.patch(
+  "/:studentId/activity/:activityId",
+  protect,
+  allowRoles("mentor", "advisor", "hod", "admin"),
+  async (req, res) => {
+    try {
+      const { status, pointsApproved, remarks } = req.body;
+      const decision = status;
+      const role = req.user.role;
+
+      const record = await StudentPoints.findOne({ student: req.params.studentId }).populate({
+        path: "student",
+        select: "name rollNumber department year section advisor",
+      });
+      if (!record) return res.status(404).json({ message: "Record not found" });
+      if (!record.student) return res.status(404).json({ message: "Student record not found" });
+
+      const activity = record.activities.id(req.params.activityId);
+      if (!activity) return res.status(404).json({ message: "Activity not found" });
+
+      if (activity.currentStage !== role && role !== "admin") {
+        return res.status(403).json({
+          message: `This activity is not at the ${role} stage (currently: ${activity.currentStage})`,
+        });
+      }
+
+      // Class Advisors can ONLY review (approve/reject) submissions for their assigned class
+      if (role === "advisor") {
+        const advisorUser = await User.findById(req.user.id);
+        if (!advisorUser || !isAdvisorForStudent(advisorUser, record.student)) {
+          const studentClass = `${record.student.year ? `${record.student.year} Year` : ""} Section ${record.student.section || "A"}`;
+          return res.status(403).json({
+            message: `Access denied. As Class Advisor, you can only review submissions for your assigned class, not for ${studentClass}.`,
+          });
+        }
+      }
+
+      const stepField = `${role}Approval`;
+      activity[stepField].status = decision;
+      activity[stepField].approvedBy = req.user.id;
+      activity[stepField].remarks = sanitise(remarks || "").slice(0, 500);
+      activity[stepField].date = new Date();
+
+      if (decision === "rejected") {
+        activity.currentStage = "rejected";
+      } else {
+        const next = NEXT_STAGE[role];
+        activity.currentStage = next;
+
+        if (next === "completed") {
+          const parsed = Number(pointsApproved);
+          activity.pointsApproved =
+            pointsApproved !== undefined && pointsApproved !== "" && !isNaN(parsed) && parsed >= 0
+              ? parsed
+              : activity.pointsClaimed;
+          activity.verificationCode = generateVerificationCode();
+        }
+      }
+
+      record.recalculateTotal();
+      await record.save({ validateModifiedOnly: true });
+
+      res.json({ message: "Review recorded", record });
+    } catch (err) {
+      console.error("[points/review]", err);
+      res.status(500).json({ message: "Failed to record review." });
+    }
+  }
+);
+
+
+// GET /api/points/student-summary
+// Returns all registered students with per-category submission counts
+// where the activity has passed at least the advisor stage (advisor-approved or completed).
+// Used by the Class Advisor spreadsheet-style summary table.
+router.get("/student-summary", protect, allowRoles("mentor", "advisor", "hod", "admin"), async (req, res) => {
+  try {
+    const CATEGORIES = [
+      "1. Paper/Poster/Project Presentation",
+      "2. Techno Managerial Events",
+      "3. Sports & Games",
+      "4. Membership & Social Activities",
+      "5. Leadership/Organizing Events",
+      "6. Non-Credit Value-Added Course/IPT",
+      "7. Project to paper/Patent/Product Copyright",
+      "8. GATE/CAT/Govt. Exams",
+    ];
+
+    // Get all students ordered by roll number, optionally filtered by year and section
+    const filter = { role: "student", isApproved: { $ne: false } };
+    if (req.query.year) filter.year = Number(req.query.year);
+    if (req.query.section) filter.section = req.query.section.toUpperCase();
+
+    const students = await require("../models/User")
+      .find(filter)
+      .select("name email rollNumber department year section advisor")
+      .populate("advisor", "name email assignedClass")
+      .sort({ rollNumber: 1 });
+
+    // Get all point records in one query
+    const allRecords = await StudentPoints.find({}).populate("student", "_id");
+    const recordByStudent = {};
+    allRecords.forEach((r) => {
+      if (r.student) recordByStudent[r.student._id.toString()] = r;
+    });
+
+    const summary = students.map((student) => {
+      const record = recordByStudent[student._id.toString()];
+      const categoryCounts = {};
+      let total = 0;
+      let totalPoints = 0;
+
+      CATEGORIES.forEach((cat) => { categoryCounts[cat] = 0; });
+
+      if (record) {
+        record.activities.forEach((activity) => {
+          // Count if advisor-approved (passed advisor stage) or fully completed
+          const advisorPassed =
+            activity.advisorApproval?.status === "approved" ||
+            activity.currentStage === "completed";
+
+          if (advisorPassed && CATEGORIES.includes(activity.category)) {
+            categoryCounts[activity.category] += 1;
+            total += 1;
+            const pts = (activity.currentStage === "completed" ? activity.pointsApproved : activity.pointsClaimed) || 0;
+            totalPoints += pts;
+          }
+        });
+      }
+
+      const sapMark = calculateSAPMark(totalPoints);
+
+      return {
+        studentId: student._id,
+        name: student.name,
+        email: student.email,
+        rollNumber: student.rollNumber || "-",
+        department: student.department,
+        year: student.year || 2,
+        section: student.section || "A",
+        advisor: student.advisor ? { name: student.advisor.name, email: student.advisor.email, assignedClass: student.advisor.assignedClass } : null,
+        categoryCounts,
+        total,
+        totalPoints,
+        sapMark,
+      };
+    });
+
+    res.json({ categories: CATEGORIES, students: summary });
+  } catch (err) {
+    console.error("[points/student-summary]", err);
+    res.status(500).json({ message: "Failed to fetch student summary." });
+  }
+});
+
+// Mentor/advisor/HOD can revoke a FULLY VERIFIED (completed) activity — e.g. if
+// fraudulent proof is discovered after the fact. Any of the three roles can do
+// this regardless of who originally approved which stage. Sends it back to
+// "rejected" and zeroes out the points.
+router.patch(
+  "/:studentId/activity/:activityId/revoke",
+  protect,
+  allowRoles("mentor", "advisor", "hod", "admin"),
+  async (req, res) => {
+    try {
+      const { remarks } = req.body;
+
+      const record = await StudentPoints.findOne({ student: req.params.studentId }).populate({
+        path: "student",
+        select: "name rollNumber department year section advisor",
+      });
+      if (!record) return res.status(404).json({ message: "Record not found" });
+      if (!record.student) return res.status(404).json({ message: "Student not found" });
+
+      const activity = record.activities.id(req.params.activityId);
+      if (!activity) return res.status(404).json({ message: "Activity not found" });
+
+      if (activity.currentStage !== "completed") {
+        return res.status(400).json({
+          message: "Only fully verified activities can be revoked.",
+        });
+      }
+
+      // Class Advisors can ONLY revoke submissions for their own assigned class
+      if (req.user.role === "advisor") {
+        const advisorUser = await User.findById(req.user.id);
+        if (!advisorUser || !isAdvisorForStudent(advisorUser, record.student)) {
+          return res.status(403).json({
+            message: "Access denied. Class Advisors can only revoke submissions for their own class.",
+          });
+        }
+      }
+
+      activity.currentStage = "rejected";
+      activity.pointsApproved = 0;
+      activity.verificationCode = undefined;
+
+      // Record who revoked it and why, on the reviewer's own approval slot
+      const role = req.user.role;
+      const stepField = `${role}Approval`;
+      activity[stepField].status = "rejected";
+      activity[stepField].approvedBy = req.user.id;
+      activity[stepField].remarks = remarks || "Verification revoked after re-review";
+      activity[stepField].date = new Date();
+
+      record.recalculateTotal();
+      await record.save();
+
+      res.json({ message: "Verification revoked", record });
+    } catch (err) {
+      console.error("[points/revoke]", err);
+      res.status(500).json({ message: "Failed to revoke verification." });
+    }
+  }
+);
+
+module.exports = router;
