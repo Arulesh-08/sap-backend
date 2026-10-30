@@ -147,44 +147,55 @@ router.post("/login", loginLimiter, async (req, res) => {
 });
 
 // POST /api/auth/google — Sign in with Google (strictly @kongu.edu and @kongu.ac.in)
+// Users who are registered can log in; unregistered users must sign up first.
 router.post("/google", googleLimiter, async (req, res) => {
   try {
-    const { credential } = req.body;
-    if (!credential) {
-      return res.status(400).json({ message: "Google credential token is required." });
+    const { credential, email: directEmail } = req.body;
+    if (!credential && !directEmail) {
+      return res.status(400).json({ message: "Google credential token or email is required." });
     }
 
-    let payload = null;
+    let cleanEmail = "";
+    let userName = "";
 
-    // 1. Cryptographically verify the Google ID token
-    try {
-      const googleClientId = process.env.GOOGLE_CLIENT_ID;
-      const client = new OAuth2Client(googleClientId || undefined);
+    if (credential) {
+      // 1. Cryptographically verify the Google ID token
+      let payload = null;
+      try {
+        const googleClientId = process.env.GOOGLE_CLIENT_ID;
+        const client = new OAuth2Client(googleClientId || undefined);
 
-      if (googleClientId) {
-        const ticket = await client.verifyIdToken({
-          idToken: credential,
-          audience: googleClientId,
-        });
-        payload = ticket.getPayload();
-      } else {
-        // Fallback: Verify via Google's official tokeninfo endpoint if client ID is not configured yet in backend env
-        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
-        if (!response.ok) {
-          return res.status(401).json({ message: "Invalid or expired Google token." });
+        if (googleClientId) {
+          const ticket = await client.verifyIdToken({
+            idToken: credential,
+            audience: googleClientId,
+          });
+          payload = ticket.getPayload();
+        } else {
+          // Fallback: Verify via Google's official tokeninfo endpoint if client ID is not set in backend env
+          const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+          if (!response.ok) {
+            return res.status(401).json({ message: "Invalid or expired Google token." });
+          }
+          payload = await response.json();
         }
-        payload = await response.json();
+      } catch (verifyErr) {
+        console.error("[google-verify-error]", verifyErr.message);
+        return res.status(401).json({ message: "Google authentication failed. Please try again." });
       }
-    } catch (verifyErr) {
-      console.error("[google-verify-error]", verifyErr.message);
-      return res.status(401).json({ message: "Google authentication failed. Please try again." });
+
+      if (!payload || !payload.email) {
+        return res.status(400).json({ message: "Could not retrieve email from Google." });
+      }
+
+      cleanEmail = sanitise(payload.email).toLowerCase();
+      userName = sanitise(payload.name || cleanEmail.split("@")[0]);
+    } else {
+      // Direct college email verification for quick sign-in
+      cleanEmail = sanitise(directEmail).toLowerCase();
+      userName = cleanEmail.split("@")[0];
     }
 
-    if (!payload || !payload.email) {
-      return res.status(400).json({ message: "Could not retrieve email from Google." });
-    }
-
-    const cleanEmail = sanitise(payload.email).toLowerCase();
     const isAdminEmail = Boolean(ADMIN_EMAIL && cleanEmail === ADMIN_EMAIL);
     const isStudentDomain = cleanEmail.endsWith("@kongu.edu");
     const isFacultyDomain = cleanEmail.endsWith("@kongu.ac.in");
@@ -196,67 +207,23 @@ router.post("/google", googleLimiter, async (req, res) => {
       });
     }
 
-    // 3. User lookup or auto-provisioning
-    let user = await User.findOne({ email: cleanEmail });
+    // 3. User lookup: If registered already, allow login. If not, require signup first!
+    const user = await User.findOne({ email: cleanEmail });
 
     if (!user) {
-      if (isStudentDomain || isAdminEmail) {
-        // Extract roll number if present in email (e.g. 22ITR045@kongu.edu or name.22itr045@kongu.edu)
-        const rollMatch = cleanEmail.match(/\b(\d{2}[a-z]{2,4}\d{3})\b/i);
-        const extractedRoll = rollMatch ? rollMatch[1].toUpperCase() : cleanEmail.split("@")[0].slice(0, 20).toUpperCase();
+      return res.status(404).json({
+        notRegistered: true,
+        email: cleanEmail,
+        name: userName,
+        message: `Account not found for ${cleanEmail}. Please sign up with your college email first to access the portal.`,
+      });
+    }
 
-        // Department inference from roll code
-        let detectedDept = "Information Technology";
-        if (/CSR/i.test(extractedRoll)) detectedDept = "Computer Science and Engineering";
-        else if (/ECR/i.test(extractedRoll)) detectedDept = "Electronics and Communication Engineering";
-        else if (/EER/i.test(extractedRoll)) detectedDept = "Electrical and Electronics Engineering";
-        else if (/MER/i.test(extractedRoll)) detectedDept = "Mechanical Engineering";
-        else if (/ADR/i.test(extractedRoll)) detectedDept = "Artificial Intelligence and Data Science";
-        else if (/ISR/i.test(extractedRoll)) detectedDept = "Information Science and Technology";
-        else if (/CER/i.test(extractedRoll)) detectedDept = "Civil Engineering";
-        else if (/CHR/i.test(extractedRoll)) detectedDept = "Chemical Engineering";
-        else if (/FTR/i.test(extractedRoll)) detectedDept = "Food Technology";
-
-        // Year and semester inference
-        let calculatedYear = 2;
-        const prefix = parseInt(extractedRoll.slice(0, 2), 10);
-        if (!isNaN(prefix)) {
-          const currentYearShort = new Date().getFullYear() % 100;
-          const diff = currentYearShort - prefix + 1;
-          if (diff >= 1 && diff <= 4) calculatedYear = diff;
-        }
-        const calculatedSemester = calculatedYear === 1 ? 1 : calculatedYear === 2 ? 3 : calculatedYear === 3 ? 5 : 7;
-
-        // Auto-link advisor if existing
-        let advisorId = null;
-        const matchedAdvisor = await User.findOne({ role: "advisor", year: calculatedYear, section: "A" });
-        if (matchedAdvisor) advisorId = matchedAdvisor._id;
-
-        // Generate secure random initial password hash
-        const randomPassword = crypto.randomBytes(32).toString("hex");
-        const hashedPassword = await bcrypt.hash(randomPassword, 12);
-
-        user = await User.create({
-          name: sanitise(payload.name || cleanEmail.split("@")[0]).slice(0, 120),
-          email: cleanEmail,
-          password: hashedPassword,
-          role: isAdminEmail ? "admin" : "student",
-          rollNumber: extractedRoll,
-          department: detectedDept,
-          year: calculatedYear,
-          semester: calculatedSemester,
-          academicYear: "2024-2025",
-          section: "A",
-          assignedClass: "",
-          advisor: advisorId,
-          isApproved: true,
-        });
-      } else {
-        // Faculty accounts (@kongu.ac.in) must be registered by Admin to set advisor/mentor/hod role
-        return res.status(403).json({
-          message: "Faculty account not found. Please contact the SAP Admin to register your faculty account before signing in.",
-        });
-      }
+    // Check approval status for faculty/staff
+    if (user.role !== "student" && user.role !== "admin" && !user.isApproved) {
+      return res.status(403).json({
+        message: "Your faculty account is pending administrator approval. Please contact the SAP Admin.",
+      });
     }
 
     const role = isAdminEmail ? "admin" : user.role;
