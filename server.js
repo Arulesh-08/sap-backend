@@ -15,6 +15,11 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
+
+// ── Trust reverse proxy (Render, Cloudflare, Vercel, AWS ALB) ────────────────
+// Essential for rate-limiting by client IP instead of proxy internal IP.
+app.set("trust proxy", 1);
+
 const { apiLimiter } = require("./middleware/rateLimiter");
 
 // Ensure uploads folder exists dynamically
@@ -24,15 +29,21 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // ── Security headers (Helmet) ────────────────────────────────────────────────
-app.use(helmet());
+// Configured to allow Google OAuth popups and separate Vercel frontend deployment
+app.use(
+  helmet({
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+  })
+);
 
 // ── CORS — locked to configured frontend origin(s) ───────────────────────────
 // ALLOWED_ORIGIN can be a single URL or a comma-separated list, e.g.:
 //   https://sap-frontend-lake.vercel.app,http://localhost:5173
-// Falls back to the known Vercel URL + localhost so the site works even if
-// the env var isn't set yet in the hosting dashboard.
+// Falls back to known frontend origins and dynamically allows localhost & Vercel previews.
 const rawOrigins = process.env.ALLOWED_ORIGIN
-  || "https://sap-frontend-lake.vercel.app,http://localhost:5173";
+  || "https://sap-frontend-lake.vercel.app,http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173";
 const ALLOWED_ORIGINS = new Set(rawOrigins.split(",").map((o) => o.trim()));
 
 app.use(
@@ -41,6 +52,14 @@ app.use(
       // Allow same-origin / server-to-server calls (no Origin header)
       if (!origin) return callback(null, true);
       if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
+      // Allow localhost or 127.0.0.1 on any port for local development
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+      // Allow Vercel preview deployments for this project
+      if (/^https:\/\/sap-frontend(-[a-z0-9-]+)?\.vercel\.app$/.test(origin)) {
+        return callback(null, true);
+      }
       callback(new Error(`CORS: origin '${origin}' is not allowed`));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -59,11 +78,15 @@ app.use("/api", apiLimiter);
 // Serve static uploaded files
 app.use("/uploads", express.static(uploadsDir));
 
-// Connect to MongoDB
+// Connect to MongoDB with high-concurrency connection pool
 const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/sap-db";
 mongoose
-  .connect(mongoURI)
-  .then(() => console.log("✅ MongoDB connected successfully!"))
+  .connect(mongoURI, {
+    maxPoolSize: 50,
+    minPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+  })
+  .then(() => console.log("✅ MongoDB connected successfully with high-concurrency connection pool!"))
   .catch((err) => console.error("❌ MongoDB connection error:", err.message));
 
 // API Routes — more-specific paths MUST be mounted before broader ones.
